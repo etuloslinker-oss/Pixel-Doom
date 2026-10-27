@@ -3,149 +3,121 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Doomish</title>
+<title>Hollowmere</title>
 <style>
-html,body{margin:0;height:100%;background:#120806;color:#e8d9c0;font-family:"Courier New",monospace;overflow:hidden}
+html,body{margin:0;height:100%;background:#050305;color:#cfc5b8;font-family:"Courier New",monospace;overflow:hidden}
 canvas{display:block;width:100vw;height:100vh;image-rendering:pixelated}
-#menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(18,8,6,.93);text-align:center;padding:20px}
-h1{font-size:clamp(44px,12vw,104px);margin:0;color:#c1121f;letter-spacing:.08em;text-shadow:4px 4px #000}
-input,button{font:inherit;font-size:18px;padding:12px 18px;background:#000;color:#e8d9c0;border:2px solid #c1121f;border-radius:0}
-button{background:#c1121f;color:#fff;cursor:pointer}
-button:hover,button:focus-visible{background:#e5383b;outline:2px solid #fff}
+#menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(5,3,5,.95);text-align:center;padding:20px}
+h1{font-size:clamp(38px,10vw,92px);margin:0;color:#8c1017;letter-spacing:.1em;text-shadow:3px 3px #000}
+#tag{max-width:34em;margin:0;line-height:1.55;opacity:.8}
+input,button{font:inherit;font-size:18px;padding:12px 18px;background:#000;color:#cfc5b8;border:2px solid #8c1017;border-radius:0}
+button{background:#8c1017;color:#fff;cursor:pointer}
+button:hover,button:focus-visible{background:#b3202a;outline:2px solid #fff}
 #st{min-height:1.2em;opacity:.75;max-width:30em}
-small{opacity:.6}
+small{opacity:.55;max-width:34em}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="menu">
-  <h1>DOOMISH</h1>
-  <input id="nm" maxlength="12" placeholder="Callsign" aria-label="Callsign">
-  <button onclick="join()">Enter the arena</button>
+  <h1>HOLLOWMERE</h1>
+  <p id="tag">The manor is dark and something walks its halls. Find four fuses, power the generator in the central hall, then escape through the north gate. Stay together. Keep your light low.</p>
+  <input id="nm" maxlength="12" placeholder="Name" aria-label="Name">
+  <button onclick="join()">Enter the manor</button>
   <div id="st"></div>
-  <small>WASD move · mouse or arrow keys turn · click or space fires · click the screen to capture the mouse</small>
+  <small>WASD move · mouse or arrow keys turn · F or click: flashlight · hold E: revive a downed friend. A lit flashlight shows you more, but the Warden notices it from further away.</small>
 </div>
 <script>
 // After deploying the server on Render, set this to wss://<your-service>.onrender.com
 // (or open the page with ?server=wss://... to override).
-const SERVER = new URLSearchParams(location.search).get('server') || 'wss://pixel-doom.onrender.com';
+const SERVER = new URLSearchParams(location.search).get('server') || 'wss://YOUR-APP.onrender.com';
 
 const $ = id => document.getElementById(id), cv = $('c'), g = cv.getContext('2d');
-const FOV = Math.PI / 3, TF = Math.tan(FOV / 2);
-let W = 400, H = 240, zb, FL;
-function rs() { H = Math.round(W * innerHeight / innerWidth); cv.width = W; cv.height = H; zb = new Float32Array(W); FL = g.createImageData(W, H - (H >> 1)); }
+const FOV = Math.PI / 3, TF = Math.tan(FOV / 2), INTERP = 100;
+let W = 400, H = 240, zb, FL, BX;
+function rs() { H = Math.round(W * innerHeight / innerWidth); cv.width = W; cv.height = H; zb = new Float32Array(W); BX = new Float32Array(W); FL = g.createImageData(W, H - (H >> 1)); }
 addEventListener('resize', rs); rs();
 
-let snaps = [], rtt = 0, pinger;
-const INTERP = 100; // ms other players are rendered in the past, so we can blend between updates
-let ws, id, map = [], pl = {}, px = 2, py = 2, pa = 0, hp = 100, flash = 0, kick = 0, feed = [], keys = {}, lastSend = 0, running = 0, t0 = 0;
+let ws, id, map = [], pl = {}, items = [], G = ['p', 0, 4, 0, 0, 0], px = 2, py = 2, pa = 0;
+let my = { hp: 2, st: 0, cy: 0 }, battery = 100, light = true, flash = 0, bob = 0, hb = 0, actOn = false, droned = false;
+let snaps = [], rtt = 0, pinger, feed = [], keys = {}, lastSend = 0, running = 0, t0 = 0;
 const ok = (x, y) => map[y | 0]?.[x | 0] === '.';
+const log = s => feed.push([s, performance.now()]);
 
+// ---------- audio ----------
 let ac;
-function snd(f, d) {
+function tone(f, d, type = 'sine', v = .12, to = 40) {
   try {
     ac = ac || new AudioContext();
-    const o = ac.createOscillator(), v = ac.createGain();
-    o.type = 'sawtooth'; o.frequency.value = f;
-    o.frequency.exponentialRampToValueAtTime(40, ac.currentTime + d);
-    v.gain.value = .12; v.gain.exponentialRampToValueAtTime(.001, ac.currentTime + d);
-    o.connect(v); v.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+    const o = ac.createOscillator(), a = ac.createGain();
+    o.type = type; o.frequency.value = f; o.frequency.exponentialRampToValueAtTime(to, ac.currentTime + d);
+    a.gain.value = v; a.gain.exponentialRampToValueAtTime(.001, ac.currentTime + d);
+    o.connect(a); a.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+  } catch {}
+}
+function drone() {
+  if (droned) return; droned = true;
+  try {
+    ac = ac || new AudioContext();
+    [48, 50.4, 96.7].forEach((f, i) => { const o = ac.createOscillator(), a = ac.createGain(); o.frequency.value = f; a.gain.value = i < 2 ? .05 : .012; o.connect(a); a.connect(ac.destination); o.start(); });
   } catch {}
 }
 
+// ---------- networking ----------
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 function join() {
   $('st').textContent = 'Connecting… a sleeping Render free instance can take ~50 seconds to wake.';
   ws = new WebSocket(SERVER);
-  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name: $('nm').value || 'Marine' }));
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name: $('nm').value || 'Survivor' }));
   ws.onerror = () => $('st').textContent = 'Could not reach the server. Check the SERVER url in index.html.';
   ws.onclose = () => { running = 0; clearInterval(pinger); $('menu').style.display = 'flex'; };
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
     if (m.t === 'init') {
-      id = m.id; map = m.map; px = m.x; py = m.y; hp = 100; running = 1;
-      $('menu').style.display = 'none'; t0 = performance.now(); requestAnimationFrame(loop);
-      snaps = [];
-      const ping = () => send({ t: 'ping', c: performance.now() });
-      ping(); pinger = setInterval(ping, 2000);
+      id = m.id; map = m.map; px = m.x; py = m.y; battery = 100; running = 1; snaps = [];
+      $('menu').style.display = 'none'; drone(); t0 = performance.now(); requestAnimationFrame(loop);
+      const ping = () => send({ t: 'ping', c: performance.now() }); ping(); pinger = setInterval(ping, 2000);
     } else if (m.t === 'pong') {
       const r = performance.now() - m.c; rtt = rtt ? rtt * .7 + r * .3 : r;
     } else if (m.t === 's') {
       pl = {};
-      m.p.forEach(p => pl[p[0]] = { id: p[0], name: p[1], x: p[2], y: p[3], a: p[4], hp: p[5], sc: p[6], d: p[7] });
+      m.p.forEach(a => pl[a[0]] = { id: a[0], name: a[1], x: a[2], y: a[3], a: a[4], hp: a[5], st: a[6], lt: a[7], cy: a[8], pr: a[9], bt: a[10] });
       snaps.push({ t: performance.now(), p: pl }); if (snaps.length > 12) snaps.shift();
-      const me = pl[id];
-      if (me) { if (me.hp < hp) flash = 1; hp = me.hp; }
+      if (G[0] !== 'p' && m.g[0] === 'p') battery = 100;
+      G = m.g; items = m.it;
+      const s = pl[id];
+      if (s) { if (Math.hypot(s.x - px, s.y - py) > 3) { px = s.x; py = s.y; } my = s; }
       m.e.forEach(v => {
-        if (v[0] === 'f') { fired[v[1]] = performance.now(); snd(id === v[1] ? 180 : 120, .18); }
-        else if (v[0] === 'k') feed.push([v[1] + ' killed ' + v[2], performance.now()]);
-        else if (v[0] === 'r' && v[1] === id) { px = v[2]; py = v[3]; }
+        if (v[0] === 'hit') { if (v[1] === id) { flash = 1; tone(220, .4, 'sawtooth', .22, 50); } }
+        else if (v[0] === 'roar') tone(85, 1.2, 'sawtooth', .2, 28);
+        else if (v[0] === 'pick') { if (v[2] === id && v[1] === 'b') { battery = Math.min(100, battery + 60); tone(660, .12, 'square', .06, 880); } if (v[2] === id && v[1] === 'f') tone(440, .2, 'triangle', .1, 660); log(v[3] + (v[1] === 'f' ? ' took a fuse' : ' found a battery')); }
+        else if (v[0] === 'fuse') { log(`${v[2]} installed a fuse (${v[1]}/${G[2]})`); tone(180, .5, 'square', .1, 120); }
+        else if (v[0] === 'down') log(v[1] + ' is down!');
+        else if (v[0] === 'rev') log(v[1] + ' was revived');
+        else if (v[0] === 'dead') log(v[1] + ' bled out');
+        else if (v[0] === 'open') { log('THE NORTH GATE IS OPEN'); tone(120, 1.5, 'sawtooth', .2, 300); }
+        else if (v[0] === 'esc') log(v[1] + ' escaped');
       });
     }
   };
 }
 
-addEventListener('keydown', e => { keys[e.code] = 1; if (e.code === 'Space') { e.preventDefault(); fire(); } });
+// ---------- input ----------
+function toggleLight() { light = !light; tone(900, .05, 'square', .05, 600); }
+addEventListener('keydown', e => { keys[e.code] = 1; if (e.code === 'KeyF') toggleLight(); });
 addEventListener('keyup', e => keys[e.code] = 0);
-cv.addEventListener('mousedown', () => { if (document.pointerLockElement !== cv) cv.requestPointerLock(); else fire(); });
+cv.addEventListener('mousedown', () => { if (document.pointerLockElement !== cv) cv.requestPointerLock(); else toggleLight(); });
 addEventListener('mousemove', e => { if (document.pointerLockElement === cv) pa += e.movementX * .003; });
 
-function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
-function fire() {
-  if (!running || hp <= 0 || kick > .5) return;
-  kick = 1; send({ t: 'move', x: px, y: py, a: pa }); send({ t: 'shoot', a: pa, lag: Math.min(350, rtt / 2 + INTERP) });
-}
-
-function cast(ang) {
-  const dx = Math.cos(ang), dy = Math.sin(ang);
-  let mx = px | 0, my = py | 0;
-  const ddx = Math.abs(1 / dx), ddy = Math.abs(1 / dy);
-  let sx, sy, sdx, sdy, side = 0;
-  if (dx < 0) { sx = -1; sdx = (px - mx) * ddx; } else { sx = 1; sdx = (mx + 1 - px) * ddx; }
-  if (dy < 0) { sy = -1; sdy = (py - my) * ddy; } else { sy = 1; sdy = (my + 1 - py) * ddy; }
-  for (let i = 0; i < 64; i++) {
-    if (sdx < sdy) { sdx += ddx; mx += sx; side = 0; } else { sdy += ddy; my += sy; side = 1; }
-    if (!map[my] || map[my][mx] !== '.') break;
-  }
-  const d = side ? sdy - ddy : sdx - ddx;
-  return [d, side, (side ? px + dx * d : py + dy * d) % 1, map[my]?.[mx]];
-}
-
-function loop(t) {
-  if (!running) return;
-  const dt = Math.min(.05, (t - t0) / 1000); t0 = t;
-  if (hp > 0) {
-    pa += ((keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0)) * 2.5 * dt;
-    const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), s = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), sp = 3.5 * dt;
-    const vx = (Math.cos(pa) * f - Math.sin(pa) * s) * sp, vy = (Math.sin(pa) * f + Math.cos(pa) * s) * sp;
-    if (ok(px + vx + Math.sign(vx) * .2, py)) px += vx;
-    if (ok(px, py + vy + Math.sign(vy) * .2)) py += vy;
-  }
-  if (t - lastSend > 40) { lastSend = t; send({ t: 'move', x: px, y: py, a: pa }); }
-  kick = Math.max(0, kick - dt * 3);
-  draw(dt);
-  requestAnimationFrame(loop);
-}
-
-// ---- Pixel art: characters (front / back / side views) and the first-person shotgun ----
-const PAL = { o: '#120a08', k: '#1a1a1a', y: '#ffd23f', g: '#555', m: '#6b6b6b', l: '#9a9a9a', d: '#3a3a3a', w: '#8a5a2b', v: '#5a3a1b', s: '#d9a066', S: '#a8733f', h: '#e6eaf0', z: '#e0b830', Z: '#8f6b12', n: '#4a3426', x: '#b98446' };
-const FRONT = [
-  '...oooooo...', '..oaaaaaao..', '..oaaaaaao..', '..okkkkkko..', '..okykkyko..', '..obaaaabo..',
-  'oaaaaaaaaaao', 'oaaadkkdaaao', 'oaaadmmdaaao', 'oaaaaddaaaao', 'oabbbbbbbbao', '.oaaaaaaaao.',
-  '..oooooooo..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..okkookko..', '..oooooooo..'];
-const BACK = [
-  '...oooooo...', '..oaaaaaao..', '..oaaaaaao..', '..obbbbbbo..', '..obbbbbbo..', '..obbbbbbo..',
-  'oaaaaaaaaaao', 'oabwwwwwwbao', 'oabvvvvvvbao', 'oaabbbbbbaao', 'oabbbbbbbbao', '.oaaaaaaaao.',
-  '..oooooooo..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..okkookko..', '..oooooooo..'];
-const SIDE = [
-  '...oooooo...', '..oaaaaaao..', '..oaaaaaao..', '..oaaakkyo..', '..oaaakkko..', '..oaaaaabo..',
-  '..oaaaaaolll', '..oaccaaommm', '..oaabbaaodd', '..oaaaaaao..', '..obbbbbbo..', '...oaaaao...',
-  '...oooooo...', '...oaaaao...', '...oaaaao...', '...oaaaao...', '...oaaaao...', '...okkkkko..', '...ooooooo..'];
-const GUNL = [
-  '......okkkko', '......ohlmdo', '......ohlmdo', '......ohlmdo', '......ohlmdo', '......ohlmdo',
-  '......ozzZzo', '......ozzZzo', '......ohlmdo', '......ohlmdo',
-  '....oooooooo', '....owwwxwww', '....ovvvvvvv', '....owwwxwww', '....ovvvvvvv', '....owwwxwww', '....oooooooo',
-  '..oooooooooo', '..oddmmmllll', '..odmhhhhhhh', '..oddmmmllll', '..oooooooooo',
-  '.onnnnnno...', 'onnnnnnnno..', 'onnkkkkknno.', 'onnnnnnnnno.', 'osssssssso..', 'oSSSSSSSSo..'];
+// ---------- pixel art + procedural textures ----------
+const PAL = { o: '#0e0808', k: '#1a1a1a', y: '#ffd23f', Y: '#ff9f1c', g: '#555', m: '#6b6b6b', l: '#9a9a9a', d: '#3a3a3a', h: '#e6eaf0', s: '#d9a066', p: '#c9c3b8', u: '#8c867c', r: '#241418', q: '#3fb950', Q: '#1f6b2d' };
+const FRONT = ['...oooooo...', '..oaaaaaao..', '..oaaaaaao..', '..okkkkkko..', '..okykkyko..', '..obaaaabo..', 'oaaaaaaaaaao', 'oaaccaaccaao', 'oaaccaaccaao', 'oaaaaaaaaaao', 'oabbbbbbbbao', '.oaaaaaaaao.', '..oooooooo..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..okkookko..', '..oooooooo..'];
+const BACK = ['...oooooo...', '..oaaaaaao..', '..oaaaaaao..', '..obbbbbbo..', '..obbbbbbo..', '..obbbbbbo..', 'oaaaaaaaaaao', 'oabbbbbbbbao', 'oabbccccbbao', 'oaabbbbbbaao', 'oabbbbbbbbao', '.oaaaaaaaao.', '..oooooooo..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..okkookko..', '..oooooooo..'];
+const SIDE = ['...oooooo...', '..oaaaaaao..', '..oaaaaaao..', '..oaaakkyo..', '..oaaakkko..', '..oaaaaabo..', '..oaaaaaao..', '..oaccaaao..', '..oaabbaao..', '..oaaaaaao..', '..obbbbbbo..', '...oaaaao...', '...oooooo...', '...oaaaao...', '...oaaaao...', '...oaaaao...', '...oaaaao...', '...okkkkko..', '...ooooooo..'];
+const MON = ['...oooooo...', '..oppppppo..', '..opkppkpo..', '..oppppppo..', '..opkkkkpo..', '...oppppo...', '..oouuuuoo..', '.ouuuuuuuuo.', 'ouurrrrrruuo', 'ouurrrrrruuo', 'opurrrrrrupo', 'opurrrrrrupo', 'opurrrrrrupo', 'opu.rrrr.upo', 'opu.rrrr.upo', 'opu..rr..upo', 'opo..rr..opo', 'ooo..rr..ooo', '...orrrro...', '...orrrro...', '...orrrro...', '...oooooo...'];
+const FUSE = ['.oooo.', 'oyyyyo', 'oyYYyo', 'oyYYyo', 'oyYYyo', 'oyyyyo', '.oddo.', '.odmo.', '.odmo.', '..oo..'];
+const BATT = ['.oooo.', '.ohho.', 'oqqqqo', 'oqQQqo', 'oqQQqo', 'oqQQqo', 'oqqqqo', 'oqqqqo', 'oddddo', '.oooo.'];
+const HAND = ['..oooo..', '.oyyyyo.', '.oddddo.', '..odmo..', '..odmo..', '..odho..', '..odmo..', '..odmo..', '..odho..', '..odmo..', '..odmo..', '..oddo..', '..oooo..', '.onnnno.', '.onnnno.'];
 function bake(rows, w, flip, pal, shade) {
   const c = document.createElement('canvas'); c.width = w; c.height = rows.length;
   const x = c.getContext('2d');
@@ -156,97 +128,83 @@ function bake(rows, w, flip, pal, shade) {
   if (shade) { x.globalCompositeOperation = 'source-atop'; x.fillStyle = `rgba(0,0,0,${shade * .15})`; x.fillRect(0, 0, w, rows.length); }
   return c;
 }
-const spriteCache = {};
+const cache = {};
 function sprite(view, hue, flip, lvl) {
-  return spriteCache[view + hue + flip + lvl] ||= bake({ front: FRONT, back: BACK, side: SIDE }[view], 12, flip,
-    { ...PAL, a: `hsl(${hue},65%,45%)`, b: `hsl(${hue},65%,28%)`, c: `hsl(${hue},70%,62%)` }, lvl);
+  return cache[view + hue + flip + lvl] ||= bake({ front: FRONT, back: BACK, side: SIDE, mon: MON }[view], 12, flip,
+    { ...PAL, a: `hsl(${hue},55%,42%)`, b: `hsl(${hue},55%,26%)`, c: `hsl(${hue},60%,56%)` }, lvl);
 }
-const GUN = bake(GUNL.map(r => r + [...r].reverse().join('')), 24, false, PAL, 0);
-const fired = {};
+const IMG = { f: bake(FUSE, 6, false, PAL, 0), b: bake(BATT, 6, false, PAL, 0) };
+const TORCH = { ...PAL, n: '#4a3426' };
+const HAND_ON = bake(HAND, 8, false, TORCH, 0), HAND_OFF = bake(HAND, 8, false, { ...TORCH, y: '#444' }, 0);
 
-// ---- Scenery: procedural wall textures, dusk sky panorama, flagstone + grass floor ----
 let seed = 7; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
 function tex(fn) { const c = document.createElement('canvas'); c.width = c.height = 64; fn(c.getContext('2d')); return c; }
 function noise(x, col, n, a) { x.fillStyle = col; x.globalAlpha = a; for (let i = 0; i < n; i++) x.fillRect(rnd() * 64 | 0, rnd() * 64 | 0, 2, 1); x.globalAlpha = 1; }
 const TEX = {
   '#': tex(x => {
-    x.fillStyle = '#3d2620'; x.fillRect(0, 0, 64, 64);
-    for (let r = 0; r < 8; r++) for (let c = -1; c < 4; c++) {
-      const t = 90 + rnd() * 40 | 0; x.fillStyle = `rgb(${t + 40},${t - 20},${t - 40})`; x.fillRect((r % 2) * 8 + c * 16 + 1, r * 8 + 1, 14, 6);
-    }
-    noise(x, '#000', 150, .15);
+    for (let i = 0; i < 64; i++) { x.fillStyle = i % 16 < 8 ? '#3b4a35' : '#33402f'; x.fillRect(i, 0, 1, 64); }
+    for (let i = 0; i < 14; i++) { x.fillStyle = 'rgba(60,30,10,.35)'; x.fillRect(rnd() * 60 | 0, rnd() * 30 | 0, 3 + rnd() * 5 | 0, 10 + rnd() * 30 | 0); }
+    x.fillStyle = '#2a1c14'; x.fillRect(0, 54, 64, 10); x.fillStyle = '#1a120c'; x.fillRect(0, 54, 64, 2); noise(x, '#000', 200, .2);
   }),
   S: tex(x => {
-    x.fillStyle = '#25252b'; x.fillRect(0, 0, 64, 64);
-    for (let r = 0; r < 4; r++) for (let c = -1; c < 3; c++) {
-      const t = 110 + rnd() * 40 | 0; x.fillStyle = `rgb(${t},${t},${t + 8})`; x.fillRect((r % 2) * 16 + c * 32 + 1, r * 16 + 1, 30, 14);
-    }
-    noise(x, '#000', 200, .12); noise(x, '#fff', 80, .08);
-  }),
-  H: tex(x => {
-    x.fillStyle = '#12301a'; x.fillRect(0, 0, 64, 64);
-    for (let i = 0; i < 420; i++) { x.fillStyle = `hsl(${100 + rnd() * 40 | 0},${45 + rnd() * 25 | 0}%,${14 + rnd() * 24 | 0}%)`; x.fillRect(rnd() * 64 | 0, rnd() * 64 | 0, 3, 3); }
-    for (let i = 0; i < 14; i++) { x.fillStyle = '#e86a8a'; x.fillRect(rnd() * 62 | 0, rnd() * 62 | 0, 2, 2); }
+    x.fillStyle = '#1c1613'; x.fillRect(0, 0, 64, 64);
+    for (let r = 0; r < 4; r++) { const t = 55 + rnd() * 20 | 0; x.fillStyle = `rgb(${t + 20},${t},${t - 14})`; x.fillRect(2, r * 16 + 2, 60, 12); x.fillStyle = '#0e0a08'; x.fillRect(30 + rnd() * 20 | 0, r * 16 + 2, 1, 12); }
+    x.fillStyle = '#8a6d12'; x.fillRect(28, 28, 8, 6); noise(x, '#000', 150, .2);
   }),
   P: tex(x => {
-    for (let i = 0; i < 64; i++) { const l = 170 + 40 * Math.sin(i / 64 * Math.PI * 8); x.fillStyle = `rgb(${l},${l - 8},${l - 24})`; x.fillRect(i, 0, 1, 64); }
-    x.fillStyle = '#8a7a5a'; x.fillRect(0, 0, 64, 6); x.fillRect(0, 58, 64, 6); noise(x, '#000', 100, .08);
+    for (let i = 0; i < 64; i++) { const l = 120 + 40 * Math.sin(i / 64 * Math.PI * 8); x.fillStyle = `rgb(${l},${l - 6},${l - 20})`; x.fillRect(i, 0, 1, 64); }
+    x.fillStyle = '#6a5c44'; x.fillRect(0, 0, 64, 6); x.fillRect(0, 58, 64, 6); noise(x, '#000', 120, .1);
   }),
-  F: tex(x => {
-    x.fillStyle = '#35557f'; x.fillRect(0, 0, 64, 64);
-    for (let i = 0; i < 12; i++) { x.fillStyle = `rgba(${150 + rnd() * 80 | 0},220,255,.35)`; x.fillRect(0, i * 5 + rnd() * 3 | 0, 64, 1); }
-    x.fillStyle = '#8a8f98'; x.fillRect(0, 0, 64, 8); x.fillRect(0, 56, 64, 8);
+  G: tex(x => {
+    x.fillStyle = '#23272b'; x.fillRect(0, 0, 64, 64); x.fillStyle = '#3d444b'; x.fillRect(4, 4, 56, 56); x.fillStyle = '#15181b';
+    for (let i = 0; i < 4; i++) x.fillRect(9 + i * 13, 10, 10, 18);
+    x.fillStyle = '#e0b830'; for (let i = 0; i < 4; i++) x.fillRect(11 + i * 13, 36, 6, 6);
+    x.fillStyle = '#5c0b12'; x.fillRect(8, 48, 48, 6); noise(x, '#000', 150, .2);
+  }),
+  E: tex(x => {
+    x.fillStyle = '#100c0b'; x.fillRect(0, 0, 64, 64); x.fillStyle = '#4a4a52';
+    for (let i = 0; i < 8; i++) x.fillRect(i * 8 + 2, 0, 3, 64);
+    x.fillRect(0, 10, 64, 4); x.fillRect(0, 50, 64, 4);
   }),
 };
 TEX.T = tex(x => {
   x.drawImage(TEX['#'], 0, 0); x.fillStyle = '#2a1a10'; x.fillRect(29, 26, 6, 26);
   x.fillStyle = '#ff7b00'; x.beginPath(); x.ellipse(32, 22, 8, 12, 0, 0, 7); x.fill();
   x.fillStyle = '#ffd23f'; x.beginPath(); x.ellipse(32, 24, 4, 7, 0, 0, 7); x.fill();
-  x.fillStyle = 'rgba(255,160,40,.25)'; x.fillRect(0, 0, 64, 64);
 });
-TEX.B = tex(x => {
-  x.drawImage(TEX['#'], 0, 0); x.fillStyle = '#8c1017'; x.fillRect(16, 0, 32, 56); x.fillStyle = '#c1121f'; x.fillRect(18, 0, 28, 52);
-  x.fillStyle = '#e0b830'; x.fillRect(30, 16, 4, 20); x.fillRect(24, 22, 16, 4);
-  x.fillStyle = '#8c1017'; x.beginPath(); x.moveTo(16, 56); x.lineTo(32, 64); x.lineTo(48, 56); x.fill();
-});
-const SKY = (() => {
-  const c = document.createElement('canvas'); c.width = 1400; c.height = 120; const x = c.getContext('2d');
-  const gr = x.createLinearGradient(0, 0, 0, 120);
-  gr.addColorStop(0, '#0d0a2a'); gr.addColorStop(.55, '#5b2a6e'); gr.addColorStop(.85, '#d9573a'); gr.addColorStop(1, '#ffb347');
-  x.fillStyle = gr; x.fillRect(0, 0, 1400, 120);
-  for (let i = 0; i < 140; i++) { x.fillStyle = `rgba(255,255,255,${.3 + rnd() * .6})`; x.fillRect(rnd() * 1200 | 0, rnd() * 60 | 0, 1, 1); }
-  x.fillStyle = 'rgba(255,240,200,.18)'; x.beginPath(); x.arc(300, 34, 20, 0, 7); x.fill();
-  x.fillStyle = '#f4ecd0'; x.beginPath(); x.arc(300, 34, 12, 0, 7); x.fill();
-  for (let i = 0; i < 16; i++) { x.fillStyle = 'rgba(255,170,150,.25)'; const cx = rnd() * 1200, cy = 30 + rnd() * 40; for (let j = 0; j < 5; j++) x.fillRect(cx + j * 10, cy + (j % 2) * 2, 26, 3); }
-  for (let xx = 0; xx < 1200; xx++) {
-    const t = xx / 1200 * Math.PI * 2;
-    const h1 = 26 + 14 * Math.sin(t * 3 + 1) + 8 * Math.sin(t * 7 + 2), h2 = 14 + 8 * Math.sin(t * 5) + 5 * Math.sin(t * 11 + 1);
-    x.fillStyle = '#4a2a5c'; x.fillRect(xx, 120 - h1, 1, h1);
-    x.fillStyle = '#1f1230'; x.fillRect(xx, 120 - h2, 1, h2);
-  }
-  x.drawImage(c, 0, 0, 200, 120, 1200, 0, 200, 120);
-  return c;
-})();
 const FLOOR = tex(x => {
-  x.fillStyle = '#3b3a40'; x.fillRect(0, 0, 64, 64);
-  for (let r = 0; r < 4; r++) for (let q = 0; q < 4; q++) { const t = 70 + rnd() * 30 | 0; x.fillStyle = `rgb(${t},${t - 4},${t + 6})`; x.fillRect(q * 16 + 1, r * 16 + 1, 14, 14); }
-  for (let i = 0; i < 80; i++) { x.fillStyle = `hsla(${95 + rnd() * 30 | 0},50%,${22 + rnd() * 14 | 0}%,.8)`; x.fillRect(rnd() * 64 | 0, rnd() * 64 | 0, 2 + rnd() * 3 | 0, 2); }
+  x.fillStyle = '#1d130d'; x.fillRect(0, 0, 64, 64);
+  for (let r = 0; r < 8; r++) { const t = 40 + rnd() * 25 | 0; x.fillStyle = `rgb(${t + 14},${t},${t - 10})`; x.fillRect(0, r * 8 + 1, 64, 7); x.fillStyle = '#120b07'; x.fillRect(rnd() * 64 | 0, r * 8, 1, 8); }
+  noise(x, '#000', 120, .2);
 }).getContext('2d').getImageData(0, 0, 64, 64).data;
+
 function floor() {
   const buf = FL.data, hh = H >> 1, dx = Math.cos(pa), dy = Math.sin(pa), qx = -dy * TF, qy = dx * TF;
   for (let y = 0; y < FL.height; y++) {
-    const rd = hh / (y + .5), k = Math.max(.1, 1 - rd / 9), j = 1 - k;
+    const rd = hh / (y + .5), near = Math.max(0, 1 - rd / 1.8) * .22, far = Math.max(0, 1 - rd / 13);
     let fx = px + rd * (dx - qx), fy = py + rd * (dy - qy);
     const stx = rd * 2 * qx / W, sty = rd * 2 * qy / W;
     for (let x = 0, o = y * W * 4; x < W; x++, o += 4, fx += stx, fy += sty) {
-      const ti = (((fy * 64) & 63) * 64 + ((fx * 64) & 63)) * 4;
-      buf[o] = FLOOR[ti] * k + 22 * j; buf[o + 1] = FLOOR[ti + 1] * k + 12 * j; buf[o + 2] = FLOOR[ti + 2] * k + 30 * j; buf[o + 3] = 255;
+      const ti = (((fy * 64) & 63) * 64 + ((fx * 64) & 63)) * 4, k = Math.min(1, .06 + near + BX[x] * far), j = 1 - k;
+      buf[o] = FLOOR[ti] * k + 5 * j; buf[o + 1] = FLOOR[ti + 1] * k + 4 * j; buf[o + 2] = FLOOR[ti + 2] * k + 8 * j; buf[o + 3] = 255;
     }
   }
 }
-let bob = 0;
-
-// Blend between the two server snapshots surrounding (now - INTERP)
+function cast(ang) {
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+  let mx = px | 0, my2 = py | 0;
+  const ddx = Math.abs(1 / dx), ddy = Math.abs(1 / dy);
+  let sx, sy, sdx, sdy, side = 0;
+  if (dx < 0) { sx = -1; sdx = (px - mx) * ddx; } else { sx = 1; sdx = (mx + 1 - px) * ddx; }
+  if (dy < 0) { sy = -1; sdy = (py - my2) * ddy; } else { sy = 1; sdy = (my2 + 1 - py) * ddy; }
+  for (let i = 0; i < 64; i++) {
+    if (sdx < sdy) { sdx += ddx; mx += sx; side = 0; } else { sdy += ddy; my2 += sy; side = 1; }
+    if (!map[my2] || map[my2][mx] !== '.') break;
+  }
+  const d = side ? sdy - ddy : sdx - ddx;
+  return [d, side, (side ? px + dx * d : py + dy * d) % 1, map[my2]?.[mx]];
+}
+// blend between the two server snapshots surrounding (now - INTERP)
 function interp() {
   const rt = performance.now() - INTERP, n = snaps.length;
   if (!n) return pl;
@@ -260,110 +218,143 @@ function interp() {
   }
   return out;
 }
+function blit(img, cx, bottom, ph, pd, wr) {
+  const pw = ph * wr, x0 = cx - pw / 2, top = bottom - ph;
+  for (let x = Math.max(0, x0 | 0); x < Math.min(W, x0 + pw); x++) {
+    if (zb[x] < pd) continue;
+    g.drawImage(img, Math.min(img.width - 1, (x - x0) / pw * img.width | 0), 0, 1, img.height, x, top, 1, ph);
+  }
+  return [x0, top, pw];
+}
 
-function draw(dt) {
-  const vp = interp();
+// ---------- game loop ----------
+function loop(t) {
+  if (!running) return;
+  const dt = Math.min(.05, (t - t0) / 1000); t0 = t;
+  pa += ((keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0)) * 2.5 * dt;
+  if (my.st === 0 && G[0] === 'p') {
+    const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), s = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), sp = 3.5 * dt;
+    const vx = (Math.cos(pa) * f - Math.sin(pa) * s) * sp, vy = (Math.sin(pa) * f + Math.cos(pa) * s) * sp;
+    if (ok(px + vx + Math.sign(vx) * .2, py)) px += vx;
+    if (ok(px, py + vy + Math.sign(vy) * .2)) py += vy;
+  }
+  if (light && battery > 0) battery = Math.max(0, battery - dt * 1.1);
+  const e = !!keys.KeyE && my.st === 0;
+  if (e !== actOn) { actOn = e; send({ t: 'act', on: e }); }
+  if (t - lastSend > 40) { lastSend = t; send({ t: 'move', x: px, y: py, a: pa, lt: light && battery > 0 ? 1 : 0 }); }
+  const mo = pl[0], md = mo ? Math.hypot(mo.x - px, mo.y - py) : 99;
+  hb -= dt;
+  if (md < 14 && hb <= 0 && G[0] === 'p') { tone(55, .16, 'sine', .4, 35); setTimeout(() => tone(50, .14, 'sine', .3, 30), 170); hb = Math.max(.35, md / 12); }
+  draw(dt, md);
+  requestAnimationFrame(loop);
+}
+
+function draw(dt, md) {
+  const vp = interp(), now = performance.now();
   g.imageSmoothingEnabled = false;
-  const sx = (((pa - FOV / 2) / (Math.PI * 2)) % 1 + 1) % 1 * 1200;
-  g.drawImage(SKY, sx | 0, 0, 200, 120, 0, 0, W, H >> 1);
+  const on = light && battery > 0, lit = on ? (battery < 20 && Math.random() < .3 ? 0 : 1) : 0;
+  for (let x = 0; x < W; x++) BX[x] = lit * Math.pow(Math.max(0, 1 - Math.abs(x / W - .5) * 2.6), 1.4);
+  const bright = (x, d) => Math.min(1, .06 + Math.max(0, 1 - d / 1.8) * .22 + BX[Math.min(W - 1, Math.max(0, x | 0))] * Math.max(0, 1 - d / 13));
+  g.fillStyle = '#07050a'; g.fillRect(0, 0, W, H >> 1);
   floor(); g.putImageData(FL, 0, H >> 1);
+  const glow = { T: .35, G: .25, E: .3 };
   for (let x = 0; x < W; x++) {
     const ra = pa + Math.atan((x / W - .5) * 2 * TF);
     const [d, side, u, ch] = cast(ra);
     const pd = Math.max(.05, d * Math.cos(ra - pa)); zb[x] = pd;
-    const lh = H / pd, top = (H - lh) / 2, sh = Math.max(.12, 1 - pd / 11) * (side ? .75 : 1);
+    const lh = H / pd, top = (H - lh) / 2;
     g.drawImage(TEX[ch] || TEX['#'], Math.min(63, u * 64 | 0), 0, 1, 64, x, top, 1, lh);
-    g.fillStyle = `rgba(22,12,30,${(1 - sh) * (ch === 'T' ? .45 : 1)})`; g.fillRect(x, top, 1, lh);
+    if (ch === 'E') { g.fillStyle = G[3] ? 'rgba(80,255,140,.4)' : 'rgba(255,60,40,.12)'; g.fillRect(x, top, 1, lh); }
+    const b = bright(x, pd) * (side ? .8 : 1) + (glow[ch] || 0) * Math.max(0, 1 - pd / 7) * (ch === 'E' && !G[3] ? .3 : 1);
+    g.fillStyle = `rgba(4,3,8,${1 - Math.min(1, b)})`; g.fillRect(x, top, 1, lh);
   }
-  g.imageSmoothingEnabled = false;
-  Object.values(vp).filter(p => p.id !== id && p.hp > 0)
-    .map(p => ({ p, d: Math.hypot(p.x - px, p.y - py) })).sort((a, b) => b.d - a.d)
-    .forEach(({ p, d }) => {
-      const brg = Math.atan2(p.y - py, p.x - px);
-      let df = brg - pa; df = Math.atan2(Math.sin(df), Math.cos(df));
-      if (Math.abs(df) > FOV) return;
-      const pd = d * Math.cos(df); if (pd < .2) return;
-      let rel = p.a - brg; rel = Math.atan2(Math.sin(rel), Math.cos(rel));
-      const view = Math.abs(rel) < .6 ? 'back' : Math.abs(rel) > 2.5 ? 'front' : 'side';
-      const img = sprite(view, p.id * 67 % 360, view === 'side' && rel < 0, Math.min(4, pd / 2.5 | 0));
-      const sz = H / pd, cx = (.5 + Math.tan(df) / (2 * TF)) * W;
-      const ph = sz * .8, pw = ph * 12 / 19, bottom = (H + sz) / 2, top = bottom - ph, x0 = cx - pw / 2;
-      for (let x = Math.max(0, x0 | 0); x < Math.min(W, x0 + pw); x++) {
-        if (zb[x] < pd) continue;
-        g.drawImage(img, Math.min(11, (x - x0) / pw * 12 | 0), 0, 1, 19, x, top, 1, ph);
-      }
-      if (performance.now() - (fired[p.id] || 0) < 110) {
-        const fl = view === 'side' ? [x0 + (rel < 0 ? 0 : pw), top + ph * .4] : view === 'front' ? [cx, top + ph * .4] : null;
-        if (fl && zb[Math.min(W - 1, Math.max(0, fl[0] | 0))] >= pd) {
-          const r = Math.max(2, ph * .22);
-          g.fillStyle = '#ff7b00'; g.fillRect(fl[0] - r, fl[1] - r, r * 2, r * 2);
-          g.fillStyle = '#ffd23f'; g.fillRect(fl[0] - r * .6, fl[1] - r * .6, r * 1.2, r * 1.2);
-          g.fillStyle = '#fff'; g.fillRect(fl[0] - r * .25, fl[1] - r * .25, r * .5, r * .5);
-        }
-      }
-      if (zb[Math.min(W - 1, Math.max(0, cx | 0))] >= pd) {
-        g.fillStyle = '#000'; g.fillRect(cx - 10, top - 8, 20, 4);
-        g.fillStyle = '#e5383b'; g.fillRect(cx - 9, top - 7, 18 * p.hp / 100, 2);
-        g.fillStyle = '#fff'; g.font = '8px monospace'; g.textAlign = 'center'; g.fillText(p.name, cx, top - 11);
-      }
-    });
 
-  // first-person shotgun: pixel art, walk bob, recoil and muzzle flash
-  const moving = hp > 0 && (keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD);
-  bob = moving ? bob + dt * 9 : bob * .9;
-  const gx = (W / 2 - 36 + Math.sin(bob) * 4) | 0, gy = (H - 74 + Math.abs(Math.cos(bob)) * 4 + kick * 12) | 0;
-  g.drawImage(GUN, gx, gy, 72, 84);
-  if (kick > .65) {
-    const fx = gx + 36, fy = gy;
-    g.fillStyle = 'rgba(255,180,60,.16)'; g.fillRect(0, 0, W, H);
-    g.fillStyle = '#ff7b00'; g.fillRect(fx - 18, fy - 12, 36, 16);
-    g.fillStyle = '#ffd23f'; g.fillRect(fx - 12, fy - 20, 24, 26);
-    g.fillStyle = '#fff'; g.fillRect(fx - 5, fy - 14, 10, 14);
-  }
-  g.fillStyle = kick > .5 ? '#ff4d4d' : '#fff';
-  [[-6, -1, 4, 2], [2, -1, 4, 2], [-1, -6, 2, 4], [-1, 2, 2, 4]].forEach(([a, b, c, d]) => g.fillRect(W / 2 + a, H / 2 + b, c, d));
+  // things in the dark: teammates, the Warden, fuses and batteries
+  const list = [];
+  Object.values(vp).forEach(p => { if (p.id !== id && p.st < 2) list.push({ k: p.id ? 'p' : 'm', p, x: p.x, y: p.y }); });
+  items.forEach(i => list.push({ k: i[0], x: i[1], y: i[2] }));
+  list.forEach(o => o.d = Math.hypot(o.x - px, o.y - py));
+  list.sort((a, b) => b.d - a.d).forEach(o => {
+    const brg = Math.atan2(o.y - py, o.x - px);
+    let df = brg - pa; df = Math.atan2(Math.sin(df), Math.cos(df));
+    if (Math.abs(df) > FOV) return;
+    const pd = o.d * Math.cos(df); if (pd < .2) return;
+    const sz = H / pd, cx = (.5 + Math.tan(df) / (2 * TF)) * W, bottom = (H + sz) / 2, ok2 = x => zb[Math.min(W - 1, Math.max(0, x | 0))] >= pd;
+    if (o.k === 'f' || o.k === 'b') {
+      const bl = bottom - sz * .08 - Math.sin(now / 350 + o.x) * sz * .03, ph = sz * .24;
+      g.fillStyle = o.k === 'f' ? 'rgba(255,200,80,.18)' : 'rgba(80,255,120,.15)';
+      if (ok2(cx)) g.fillRect(cx - ph * .6, bl - ph * 1.2, ph * 1.2, ph * 1.4);
+      blit(IMG[o.k], cx, bl, ph, pd, .6);
+      return;
+    }
+    const b = bright(cx, pd);
+    if (o.k === 'm') {
+      const lvl = Math.min(6, (1 - Math.max(b, .08)) * 7 | 0), ph = sz * .95;
+      const [x0, top, pw] = blit(sprite('mon', 0, false, lvl), cx, bottom, ph, pd, 12 / 22);
+      const es = Math.max(1, pw / 12);
+      [4.5, 7.5].forEach(c => { const ex = x0 + pw * c / 12; if (ok2(ex)) { g.fillStyle = 'rgba(255,0,0,.3)'; g.fillRect(ex - es, top + ph * 2.5 / 22 - es, es * 2.4, es * 2.4); g.fillStyle = '#ff3030'; g.fillRect(ex - es * .3, top + ph * 2.5 / 22 - es * .3, es * 1.2, es * 1.2); } });
+      return;
+    }
+    const p = o.p, brt = Math.max(b, p.lt ? .5 : 0);
+    const lvl = Math.min(6, (1 - brt) * 7 | 0);
+    let rel = p.a - brg; rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+    const view = Math.abs(rel) < .6 ? 'back' : Math.abs(rel) > 2.5 ? 'front' : 'side';
+    const img = sprite(view, p.id * 67 % 360, view === 'side' && rel < 0, lvl), ph = sz * .8;
+    const [x0, top, pw] = p.st === 1 ? blit(img, cx, bottom, ph * .3, pd, 12 / 19 * 2.8) : blit(img, cx, bottom, ph, pd, 12 / 19);
+    if (p.lt && p.st === 0 && ok2(cx)) { g.fillStyle = 'rgba(255,235,170,.7)'; g.fillRect(cx - 1, top + ph * .4, 2, 2); }
+    if (ok2(cx) && pd < 9) {
+      g.textAlign = 'center'; g.font = '8px monospace'; g.fillStyle = `rgba(230,220,200,${Math.max(.25, brt)})`; g.fillText(p.name, cx, top - (p.st === 1 ? 10 : 5));
+      if (p.st === 1) { g.fillStyle = '#000'; g.fillRect(cx - 10, top - 7, 20, 3); g.fillStyle = '#3fb950'; g.fillRect(cx - 9, top - 6, 18 * p.pr, 1); }
+    }
+  });
 
-  if (flash > 0) { g.fillStyle = `rgba(200,0,0,${flash * .5})`; g.fillRect(0, 0, W, H); flash -= dt * 2; }
-  if (hp <= 0) {
-    g.fillStyle = 'rgba(80,0,0,.6)'; g.fillRect(0, 0, W, H);
-    g.fillStyle = '#fff'; g.font = 'bold 20px monospace'; g.textAlign = 'center';
-    g.fillText('YOU DIED', W / 2, H / 2); g.font = '10px monospace'; g.fillText('respawning…', W / 2, H / 2 + 16);
+  // flashlight in hand
+  bob = (keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD) && my.st === 0 ? bob + dt * 9 : bob * .9;
+  g.drawImage(on ? HAND_ON : HAND_OFF, (W - 62 + Math.sin(bob) * 3) | 0, (H - 52 + Math.abs(Math.cos(bob)) * 3) | 0, 32, 60);
+  if (lit) {
+    g.globalCompositeOperation = 'lighter';
+    const rg = g.createRadialGradient(W / 2, H / 2, 4, W / 2, H / 2, H * .6);
+    rg.addColorStop(0, 'rgba(255,240,200,.10)'); rg.addColorStop(1, 'rgba(255,240,200,0)');
+    g.fillStyle = rg; g.fillRect(0, 0, W, H); g.globalCompositeOperation = 'source-over';
   }
+
+  // fear: static and vignette grow when the Warden is close
+  if (md < 7) { g.fillStyle = 'rgba(255,255,255,.08)'; for (let i = 0, n = 90 * (1 - md / 7); i < n; i++) g.fillRect(Math.random() * W, Math.random() * H, 2, 1); }
+  const vg = g.createRadialGradient(W / 2, H / 2, H * .2, W / 2, H / 2, H * .85);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(${md < 8 ? 30 : 0},0,0,${md < 8 ? .9 : .78})`);
+  g.fillStyle = vg; g.fillRect(0, 0, W, H);
+  if (flash > 0) { g.fillStyle = `rgba(200,0,0,${flash * .55})`; g.fillRect(0, 0, W, H); flash -= dt * 1.6; }
+  if (my.st === 1) { g.fillStyle = 'rgba(110,0,0,.4)'; g.fillRect(0, 0, W, H); }
 
   // HUD
-  g.textAlign = 'left'; g.font = 'bold 16px monospace';
-  const PH = 22, py0 = H - PH, hpv = Math.max(0, hp);
-  g.fillStyle = '#1d100d'; g.fillRect(0, py0, W, PH); g.fillStyle = '#c1121f'; g.fillRect(0, py0, W, 2);
-  g.font = 'bold 14px monospace'; g.fillStyle = hp > 30 ? '#e8d9c0' : '#ff4d4d'; g.fillText(hpv + '', 8, py0 + 17);
-  g.fillStyle = '#000'; g.fillRect(44, py0 + 8, 82, 8);
-  g.fillStyle = hp > 30 ? '#3fb950' : '#e5383b'; g.fillRect(45, py0 + 9, 80 * hpv / 100, 6);
-  const fx = W / 2 - 8, fy = py0 + 4;
-  g.fillStyle = '#d9a066'; g.fillRect(fx, fy, 16, 16);
-  g.fillStyle = '#3a2412'; g.fillRect(fx, fy, 16, 4);
-  g.fillStyle = hp > 0 ? '#111' : '#900'; g.fillRect(fx + 3, fy + 6, 3, 3); g.fillRect(fx + 10, fy + 6, 3, 3);
-  g.fillStyle = '#7a2d1a';
-  if (hp > 66) g.fillRect(fx + 4, fy + 12, 8, 1); else if (hp > 33) g.fillRect(fx + 5, fy + 12, 6, 2); else g.fillRect(fx + 4, fy + 11, 8, 3);
-  g.fillStyle = '#b01515';
-  if (hp < 66) g.fillRect(fx + 2, fy + 3, 2, 5);
-  if (hp < 33) g.fillRect(fx + 11, fy + 9, 3, 6);
-  g.font = '8px monospace'; g.fillStyle = '#e8d9c0'; g.fillText('SHOTGUN', W - 118, py0 + 9);
-  g.fillStyle = '#000'; g.fillRect(W - 118, py0 + 12, 62, 6);
-  g.fillStyle = kick > .5 ? '#e5383b' : '#ffd23f'; g.fillRect(W - 117, py0 + 13, 60 * (1 - kick), 4);
-  const now = performance.now(); feed = feed.filter(f => now - f[1] < 5000);
-  g.font = '9px monospace'; g.fillStyle = '#fff';
-  feed.forEach((f, i) => g.fillText(f[0], 6, 12 + i * 11));
-  const S = 3, ox = W - map.length * S - 4;
-  map.forEach((row, y) => [...row].forEach((c, x) => {
-    if (c !== '.') { g.fillStyle = 'rgba(200,200,200,.45)'; g.fillRect(ox + x * S, 4 + y * S, S, S); }
-  }));
-  Object.values(vp).forEach(p => {
-    if (p.hp <= 0) return;
-    const mine = p.id === id; g.fillStyle = mine ? '#0f0' : '#f33';
-    g.fillRect(ox + (mine ? px : p.x) * S - 1, 4 + (mine ? py : p.y) * S - 1, 3, 3);
+  const PH = 22, py0 = H - PH;
+  g.fillStyle = '#0c0709'; g.fillRect(0, py0, W, PH); g.fillStyle = '#5c0b12'; g.fillRect(0, py0, W, 1);
+  for (let i = 0; i < 2; i++) { g.fillStyle = i < my.hp ? '#c1121f' : '#2a1215'; g.fillRect(6 + i * 11, py0 + 4, 9, 7); }
+  g.textAlign = 'left'; g.font = '7px monospace'; g.fillStyle = '#8a7f86'; g.fillText('LIGHT', 6, py0 + 19);
+  g.fillStyle = '#000'; g.fillRect(34, py0 + 13, 60, 5);
+  g.fillStyle = battery > 25 ? '#e8d9a0' : '#e5383b'; g.fillRect(35, py0 + 14, 58 * battery / 100, 3);
+  g.textAlign = 'center'; g.font = '9px monospace'; g.fillStyle = '#cfc5b8';
+  g.fillText(G[3] ? 'EXIT OPEN: north gate' : my.cy ? 'Carry the fuse to the generator' : `Fuses ${G[1]}/${G[2]}`, W / 2, py0 + 14);
+  g.textAlign = 'right'; g.fillStyle = '#6b6168'; g.fillText((rtt | 0) + ' ms', W - 4, py0 + 14);
+  feed = feed.filter(f => now - f[1] < 6000);
+  g.textAlign = 'left'; g.font = '9px monospace'; g.fillStyle = '#d8cdb8'; feed.forEach((f, i) => g.fillText(f[0], 6, 12 + i * 11));
+  let ty = 12; g.textAlign = 'right'; g.font = '8px monospace';
+  Object.values(pl).filter(p => p.id).forEach(p => {
+    g.fillStyle = p.st === 0 ? '#cfc5b8' : p.st === 1 ? '#e5383b' : '#6b6168';
+    g.fillText(p.name + (p.st === 1 ? ' DOWN' : p.st === 2 ? ' DEAD' : p.st === 3 ? ' SAFE' : p.cy ? ' [fuse]' : ''), W - 4, ty); ty += 10;
   });
-  g.textAlign = 'right'; g.fillStyle = '#e8d9c0'; g.fillText((rtt | 0) + ' ms', W - 4, py0 + 16);
-  Object.values(pl).sort((a, b) => b.sc - a.sc).slice(0, 5)
-    .forEach((p, i) => g.fillText(`${p.name} ${p.sc}/${p.d}`, W - 4, map.length * S + 18 + i * 10));
+  g.textAlign = 'center';
+  const near = Object.values(vp).find(p => p.id && p.id !== id && p.st === 1 && Math.hypot(p.x - px, p.y - py) < 1.6);
+  if (G[0] !== 'p') {
+    g.fillStyle = 'rgba(0,0,0,.7)'; g.fillRect(0, H / 2 - 26, W, 52);
+    g.font = 'bold 18px monospace'; g.fillStyle = G[0] === 'w' ? '#8fd694' : '#e5383b'; g.fillText(G[0] === 'w' ? 'YOU ESCAPED' : 'THE WARDEN WINS', W / 2, H / 2);
+    g.font = '9px monospace'; g.fillStyle = '#ccc'; g.fillText('Next round in ' + G[4] + 's', W / 2, H / 2 + 16);
+  } else if (my.st === 1) {
+    g.font = 'bold 14px monospace'; g.fillStyle = '#fff'; g.fillText('YOU ARE DOWN', W / 2, H / 2 - 8);
+    g.font = '9px monospace'; g.fillText(`A friend can revive you (${my.bt}s left)`, W / 2, H / 2 + 6);
+  } else if (my.st === 2) { g.font = 'bold 14px monospace'; g.fillStyle = '#e5383b'; g.fillText('YOU BLED OUT', W / 2, H / 2); }
+  else if (my.st === 3) { g.font = 'bold 12px monospace'; g.fillStyle = '#8fd694'; g.fillText('You escaped. Waiting for the others…', W / 2, H / 2); }
+  else if (near) { g.font = '9px monospace'; g.fillStyle = '#fff'; g.fillText('HOLD E TO REVIVE ' + near.name, W / 2, py0 - 8); }
 }
 </script>
 </body>

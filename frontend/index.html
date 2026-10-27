@@ -28,12 +28,12 @@ small{opacity:.6}
 <script>
 // After deploying the server on Render, set this to wss://<your-service>.onrender.com
 // (or open the page with ?server=wss://... to override).
-const SERVER = new URLSearchParams(location.search).get('server') || 'wss://pixel-doom.onrender.com';
+const SERVER = new URLSearchParams(location.search).get('server') || 'wss://YOUR-APP.onrender.com';
 
 const $ = id => document.getElementById(id), cv = $('c'), g = cv.getContext('2d');
 const FOV = Math.PI / 3, TF = Math.tan(FOV / 2);
-let W = 400, H = 240, zb;
-function rs() { H = Math.round(W * innerHeight / innerWidth); cv.width = W; cv.height = H; zb = new Float32Array(W); }
+let W = 400, H = 240, zb, FL;
+function rs() { H = Math.round(W * innerHeight / innerWidth); cv.width = W; cv.height = H; zb = new Float32Array(W); FL = g.createImageData(W, H - (H >> 1)); }
 addEventListener('resize', rs); rs();
 
 let snaps = [], rtt = 0, pinger;
@@ -76,7 +76,7 @@ function join() {
       const me = pl[id];
       if (me) { if (me.hp < hp) flash = 1; hp = me.hp; }
       m.e.forEach(v => {
-        if (v[0] === 'f') snd(id === v[1] ? 180 : 120, .18);
+        if (v[0] === 'f') { fired[v[1]] = performance.now(); snd(id === v[1] ? 180 : 120, .18); }
         else if (v[0] === 'k') feed.push([v[1] + ' killed ' + v[2], performance.now()]);
         else if (v[0] === 'r' && v[1] === id) { px = v[2]; py = v[3]; }
       });
@@ -102,12 +102,12 @@ function cast(ang) {
   let sx, sy, sdx, sdy, side = 0;
   if (dx < 0) { sx = -1; sdx = (px - mx) * ddx; } else { sx = 1; sdx = (mx + 1 - px) * ddx; }
   if (dy < 0) { sy = -1; sdy = (py - my) * ddy; } else { sy = 1; sdy = (my + 1 - py) * ddy; }
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 64; i++) {
     if (sdx < sdy) { sdx += ddx; mx += sx; side = 0; } else { sdy += ddy; my += sy; side = 1; }
     if (!map[my] || map[my][mx] !== '.') break;
   }
   const d = side ? sdy - ddy : sdx - ddx;
-  return [d, side, (side ? px + dx * d : py + dy * d) % 1];
+  return [d, side, (side ? px + dx * d : py + dy * d) % 1, map[my]?.[mx]];
 }
 
 function loop(t) {
@@ -127,25 +127,25 @@ function loop(t) {
 }
 
 // ---- Pixel art: characters (front / back / side views) and the first-person shotgun ----
-const PAL = { o: '#120a08', k: '#1a1a1a', y: '#ffd23f', g: '#555', m: '#6b6b6b', l: '#9a9a9a', d: '#3a3a3a', w: '#8a5a2b', v: '#5a3a1b', s: '#d9a066', S: '#a8733f' };
+const PAL = { o: '#120a08', k: '#1a1a1a', y: '#ffd23f', g: '#555', m: '#6b6b6b', l: '#9a9a9a', d: '#3a3a3a', w: '#8a5a2b', v: '#5a3a1b', s: '#d9a066', S: '#a8733f', h: '#e6eaf0', z: '#e0b830', Z: '#8f6b12', n: '#4a3426', x: '#b98446' };
 const FRONT = [
   '...oooooo...', '..oaaaaaao..', '..oaaaaaao..', '..okkkkkko..', '..okykkyko..', '..obaaaabo..',
-  'oaaaaaaaaaao', 'oaaccaaccaao', 'oaaccaaccaao', 'oaaaaaaaaaao', 'oabbbbbbbbao', '.oaaaaaaaao.',
+  'oaaaaaaaaaao', 'oaaadkkdaaao', 'oaaadmmdaaao', 'oaaaaddaaaao', 'oabbbbbbbbao', '.oaaaaaaaao.',
   '..oooooooo..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..okkookko..', '..oooooooo..'];
 const BACK = [
   '...oooooo...', '..oaaaaaao..', '..oaaaaaao..', '..obbbbbbo..', '..obbbbbbo..', '..obbbbbbo..',
-  'oaaaaaaaaaao', 'oabbbbbbbbao', 'oabbccccbbao', 'oaabbbbbbaao', 'oabbbbbbbbao', '.oaaaaaaaao.',
+  'oaaaaaaaaaao', 'oabwwwwwwbao', 'oabvvvvvvbao', 'oaabbbbbbaao', 'oabbbbbbbbao', '.oaaaaaaaao.',
   '..oooooooo..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..oaaooaao..', '..okkookko..', '..oooooooo..'];
 const SIDE = [
   '...oooooo...', '..oaaaaaao..', '..oaaaaaao..', '..oaaakkyo..', '..oaaakkko..', '..oaaaaabo..',
-  '..oaaaaaoggg', '..oaccaaoggg', '..oaabbaaogg', '..oaaaaaao..', '..obbbbbbo..', '...oaaaao...',
+  '..oaaaaaolll', '..oaccaaommm', '..oaabbaaodd', '..oaaaaaao..', '..obbbbbbo..', '...oaaaao...',
   '...oooooo...', '...oaaaao...', '...oaaaao...', '...oaaaao...', '...oaaaao...', '...okkkkko..', '...ooooooo..'];
-const GUNMAP = [
-  '.....oddddo.....', '.....odllmo.....', '.....odllmo.....', '.....odllmo.....', '.....odllmo.....',
-  '.....odllmo.....', '.....odllmo.....', '....oodllmoo....', '....oodllmoo....',
-  '...owwwwwwwwo...', '...owvvwwvvwo...', '...owvvwwvvwo...', '...owwwwwwwwo...',
-  '..oddmmmmmmddo..', '..odmllllllmdo..', '..oddmmmmmmddo..',
-  '...osssssssso...', '...oSSSSSSSSo...', '....oSSSSSSo....', '....oSSSSSSo....'];
+const GUNL = [
+  '......okkkko', '......ohlmdo', '......ohlmdo', '......ohlmdo', '......ohlmdo', '......ohlmdo',
+  '......ozzZzo', '......ozzZzo', '......ohlmdo', '......ohlmdo',
+  '....oooooooo', '....owwwxwww', '....ovvvvvvv', '....owwwxwww', '....ovvvvvvv', '....owwwxwww', '....oooooooo',
+  '..oooooooooo', '..oddmmmllll', '..odmhhhhhhh', '..oddmmmllll', '..oooooooooo',
+  '.onnnnnno...', 'onnnnnnnno..', 'onnkkkkknno.', 'onnnnnnnnno.', 'osssssssso..', 'oSSSSSSSSo..'];
 function bake(rows, w, flip, pal, shade) {
   const c = document.createElement('canvas'); c.width = w; c.height = rows.length;
   const x = c.getContext('2d');
@@ -161,7 +161,89 @@ function sprite(view, hue, flip, lvl) {
   return spriteCache[view + hue + flip + lvl] ||= bake({ front: FRONT, back: BACK, side: SIDE }[view], 12, flip,
     { ...PAL, a: `hsl(${hue},65%,45%)`, b: `hsl(${hue},65%,28%)`, c: `hsl(${hue},70%,62%)` }, lvl);
 }
-const GUN = bake(GUNMAP, 16, false, PAL, 0);
+const GUN = bake(GUNL.map(r => r + [...r].reverse().join('')), 24, false, PAL, 0);
+const fired = {};
+
+// ---- Scenery: procedural wall textures, dusk sky panorama, flagstone + grass floor ----
+let seed = 7; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
+function tex(fn) { const c = document.createElement('canvas'); c.width = c.height = 64; fn(c.getContext('2d')); return c; }
+function noise(x, col, n, a) { x.fillStyle = col; x.globalAlpha = a; for (let i = 0; i < n; i++) x.fillRect(rnd() * 64 | 0, rnd() * 64 | 0, 2, 1); x.globalAlpha = 1; }
+const TEX = {
+  '#': tex(x => {
+    x.fillStyle = '#3d2620'; x.fillRect(0, 0, 64, 64);
+    for (let r = 0; r < 8; r++) for (let c = -1; c < 4; c++) {
+      const t = 90 + rnd() * 40 | 0; x.fillStyle = `rgb(${t + 40},${t - 20},${t - 40})`; x.fillRect((r % 2) * 8 + c * 16 + 1, r * 8 + 1, 14, 6);
+    }
+    noise(x, '#000', 150, .15);
+  }),
+  S: tex(x => {
+    x.fillStyle = '#25252b'; x.fillRect(0, 0, 64, 64);
+    for (let r = 0; r < 4; r++) for (let c = -1; c < 3; c++) {
+      const t = 110 + rnd() * 40 | 0; x.fillStyle = `rgb(${t},${t},${t + 8})`; x.fillRect((r % 2) * 16 + c * 32 + 1, r * 16 + 1, 30, 14);
+    }
+    noise(x, '#000', 200, .12); noise(x, '#fff', 80, .08);
+  }),
+  H: tex(x => {
+    x.fillStyle = '#12301a'; x.fillRect(0, 0, 64, 64);
+    for (let i = 0; i < 420; i++) { x.fillStyle = `hsl(${100 + rnd() * 40 | 0},${45 + rnd() * 25 | 0}%,${14 + rnd() * 24 | 0}%)`; x.fillRect(rnd() * 64 | 0, rnd() * 64 | 0, 3, 3); }
+    for (let i = 0; i < 14; i++) { x.fillStyle = '#e86a8a'; x.fillRect(rnd() * 62 | 0, rnd() * 62 | 0, 2, 2); }
+  }),
+  P: tex(x => {
+    for (let i = 0; i < 64; i++) { const l = 170 + 40 * Math.sin(i / 64 * Math.PI * 8); x.fillStyle = `rgb(${l},${l - 8},${l - 24})`; x.fillRect(i, 0, 1, 64); }
+    x.fillStyle = '#8a7a5a'; x.fillRect(0, 0, 64, 6); x.fillRect(0, 58, 64, 6); noise(x, '#000', 100, .08);
+  }),
+  F: tex(x => {
+    x.fillStyle = '#35557f'; x.fillRect(0, 0, 64, 64);
+    for (let i = 0; i < 12; i++) { x.fillStyle = `rgba(${150 + rnd() * 80 | 0},220,255,.35)`; x.fillRect(0, i * 5 + rnd() * 3 | 0, 64, 1); }
+    x.fillStyle = '#8a8f98'; x.fillRect(0, 0, 64, 8); x.fillRect(0, 56, 64, 8);
+  }),
+};
+TEX.T = tex(x => {
+  x.drawImage(TEX['#'], 0, 0); x.fillStyle = '#2a1a10'; x.fillRect(29, 26, 6, 26);
+  x.fillStyle = '#ff7b00'; x.beginPath(); x.ellipse(32, 22, 8, 12, 0, 0, 7); x.fill();
+  x.fillStyle = '#ffd23f'; x.beginPath(); x.ellipse(32, 24, 4, 7, 0, 0, 7); x.fill();
+  x.fillStyle = 'rgba(255,160,40,.25)'; x.fillRect(0, 0, 64, 64);
+});
+TEX.B = tex(x => {
+  x.drawImage(TEX['#'], 0, 0); x.fillStyle = '#8c1017'; x.fillRect(16, 0, 32, 56); x.fillStyle = '#c1121f'; x.fillRect(18, 0, 28, 52);
+  x.fillStyle = '#e0b830'; x.fillRect(30, 16, 4, 20); x.fillRect(24, 22, 16, 4);
+  x.fillStyle = '#8c1017'; x.beginPath(); x.moveTo(16, 56); x.lineTo(32, 64); x.lineTo(48, 56); x.fill();
+});
+const SKY = (() => {
+  const c = document.createElement('canvas'); c.width = 1400; c.height = 120; const x = c.getContext('2d');
+  const gr = x.createLinearGradient(0, 0, 0, 120);
+  gr.addColorStop(0, '#0d0a2a'); gr.addColorStop(.55, '#5b2a6e'); gr.addColorStop(.85, '#d9573a'); gr.addColorStop(1, '#ffb347');
+  x.fillStyle = gr; x.fillRect(0, 0, 1400, 120);
+  for (let i = 0; i < 140; i++) { x.fillStyle = `rgba(255,255,255,${.3 + rnd() * .6})`; x.fillRect(rnd() * 1200 | 0, rnd() * 60 | 0, 1, 1); }
+  x.fillStyle = 'rgba(255,240,200,.18)'; x.beginPath(); x.arc(300, 34, 20, 0, 7); x.fill();
+  x.fillStyle = '#f4ecd0'; x.beginPath(); x.arc(300, 34, 12, 0, 7); x.fill();
+  for (let i = 0; i < 16; i++) { x.fillStyle = 'rgba(255,170,150,.25)'; const cx = rnd() * 1200, cy = 30 + rnd() * 40; for (let j = 0; j < 5; j++) x.fillRect(cx + j * 10, cy + (j % 2) * 2, 26, 3); }
+  for (let xx = 0; xx < 1200; xx++) {
+    const t = xx / 1200 * Math.PI * 2;
+    const h1 = 26 + 14 * Math.sin(t * 3 + 1) + 8 * Math.sin(t * 7 + 2), h2 = 14 + 8 * Math.sin(t * 5) + 5 * Math.sin(t * 11 + 1);
+    x.fillStyle = '#4a2a5c'; x.fillRect(xx, 120 - h1, 1, h1);
+    x.fillStyle = '#1f1230'; x.fillRect(xx, 120 - h2, 1, h2);
+  }
+  x.drawImage(c, 0, 0, 200, 120, 1200, 0, 200, 120);
+  return c;
+})();
+const FLOOR = tex(x => {
+  x.fillStyle = '#3b3a40'; x.fillRect(0, 0, 64, 64);
+  for (let r = 0; r < 4; r++) for (let q = 0; q < 4; q++) { const t = 70 + rnd() * 30 | 0; x.fillStyle = `rgb(${t},${t - 4},${t + 6})`; x.fillRect(q * 16 + 1, r * 16 + 1, 14, 14); }
+  for (let i = 0; i < 80; i++) { x.fillStyle = `hsla(${95 + rnd() * 30 | 0},50%,${22 + rnd() * 14 | 0}%,.8)`; x.fillRect(rnd() * 64 | 0, rnd() * 64 | 0, 2 + rnd() * 3 | 0, 2); }
+}).getContext('2d').getImageData(0, 0, 64, 64).data;
+function floor() {
+  const buf = FL.data, hh = H >> 1, dx = Math.cos(pa), dy = Math.sin(pa), qx = -dy * TF, qy = dx * TF;
+  for (let y = 0; y < FL.height; y++) {
+    const rd = hh / (y + .5), k = Math.max(.1, 1 - rd / 9), j = 1 - k;
+    let fx = px + rd * (dx - qx), fy = py + rd * (dy - qy);
+    const stx = rd * 2 * qx / W, sty = rd * 2 * qy / W;
+    for (let x = 0, o = y * W * 4; x < W; x++, o += 4, fx += stx, fy += sty) {
+      const ti = (((fy * 64) & 63) * 64 + ((fx * 64) & 63)) * 4;
+      buf[o] = FLOOR[ti] * k + 22 * j; buf[o + 1] = FLOOR[ti + 1] * k + 12 * j; buf[o + 2] = FLOOR[ti + 2] * k + 30 * j; buf[o + 3] = 255;
+    }
+  }
+}
 let bob = 0;
 
 // Blend between the two server snapshots surrounding (now - INTERP)
@@ -181,18 +263,17 @@ function interp() {
 
 function draw(dt) {
   const vp = interp();
-  g.fillStyle = '#1c0e0b'; g.fillRect(0, 0, W, H / 2);
-  g.fillStyle = '#2a2624'; g.fillRect(0, H / 2, W, H / 2);
+  g.imageSmoothingEnabled = false;
+  const sx = (((pa - FOV / 2) / (Math.PI * 2)) % 1 + 1) % 1 * 1200;
+  g.drawImage(SKY, sx | 0, 0, 200, 120, 0, 0, W, H >> 1);
+  floor(); g.putImageData(FL, 0, H >> 1);
   for (let x = 0; x < W; x++) {
     const ra = pa + Math.atan((x / W - .5) * 2 * TF);
-    const [d, side, u] = cast(ra);
+    const [d, side, u, ch] = cast(ra);
     const pd = Math.max(.05, d * Math.cos(ra - pa)); zb[x] = pd;
-    const lh = H / pd, top = (H - lh) / 2, sh = Math.max(.12, 1 - pd / 10) * (side ? .7 : 1);
-    const mortar = (u * 4 % 1) < .05;
-    g.fillStyle = `rgb(${(mortar ? 70 : 170) * sh | 0},${(mortar ? 60 : 60) * sh | 0},${(mortar ? 55 : 40) * sh | 0})`;
-    g.fillRect(x, top, 1, lh);
-    g.fillStyle = 'rgba(0,0,0,.35)';
-    for (let r = 1; r < 4; r++) g.fillRect(x, top + lh * r / 4, 1, Math.max(1, lh / 60));
+    const lh = H / pd, top = (H - lh) / 2, sh = Math.max(.12, 1 - pd / 11) * (side ? .75 : 1);
+    g.drawImage(TEX[ch] || TEX['#'], Math.min(63, u * 64 | 0), 0, 1, 64, x, top, 1, lh);
+    g.fillStyle = `rgba(22,12,30,${(1 - sh) * (ch === 'T' ? .45 : 1)})`; g.fillRect(x, top, 1, lh);
   }
   g.imageSmoothingEnabled = false;
   Object.values(vp).filter(p => p.id !== id && p.hp > 0)
@@ -211,6 +292,15 @@ function draw(dt) {
         if (zb[x] < pd) continue;
         g.drawImage(img, Math.min(11, (x - x0) / pw * 12 | 0), 0, 1, 19, x, top, 1, ph);
       }
+      if (performance.now() - (fired[p.id] || 0) < 110) {
+        const fl = view === 'side' ? [x0 + (rel < 0 ? 0 : pw), top + ph * .4] : view === 'front' ? [cx, top + ph * .4] : null;
+        if (fl && zb[Math.min(W - 1, Math.max(0, fl[0] | 0))] >= pd) {
+          const r = Math.max(2, ph * .22);
+          g.fillStyle = '#ff7b00'; g.fillRect(fl[0] - r, fl[1] - r, r * 2, r * 2);
+          g.fillStyle = '#ffd23f'; g.fillRect(fl[0] - r * .6, fl[1] - r * .6, r * 1.2, r * 1.2);
+          g.fillStyle = '#fff'; g.fillRect(fl[0] - r * .25, fl[1] - r * .25, r * .5, r * .5);
+        }
+      }
       if (zb[Math.min(W - 1, Math.max(0, cx | 0))] >= pd) {
         g.fillStyle = '#000'; g.fillRect(cx - 10, top - 8, 20, 4);
         g.fillStyle = '#e5383b'; g.fillRect(cx - 9, top - 7, 18 * p.hp / 100, 2);
@@ -221,14 +311,14 @@ function draw(dt) {
   // first-person shotgun: pixel art, walk bob, recoil and muzzle flash
   const moving = hp > 0 && (keys.KeyW || keys.KeyA || keys.KeyS || keys.KeyD);
   bob = moving ? bob + dt * 9 : bob * .9;
-  const gx = (W / 2 - 24 + Math.sin(bob) * 3) | 0, gy = (H - 44 + Math.abs(Math.cos(bob)) * 3 + kick * 10) | 0;
-  g.drawImage(GUN, gx, gy, 48, 60);
+  const gx = (W / 2 - 36 + Math.sin(bob) * 4) | 0, gy = (H - 74 + Math.abs(Math.cos(bob)) * 4 + kick * 12) | 0;
+  g.drawImage(GUN, gx, gy, 72, 84);
   if (kick > .65) {
-    const fx = gx + 24, fy = gy - 2;
-    g.fillStyle = 'rgba(255,180,60,.14)'; g.fillRect(0, 0, W, H);
-    g.fillStyle = '#ff7b00'; g.fillRect(fx - 10, fy - 8, 20, 10);
-    g.fillStyle = '#ffd23f'; g.fillRect(fx - 6, fy - 12, 12, 14);
-    g.fillStyle = '#fff'; g.fillRect(fx - 2, fy - 8, 4, 8);
+    const fx = gx + 36, fy = gy;
+    g.fillStyle = 'rgba(255,180,60,.16)'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#ff7b00'; g.fillRect(fx - 18, fy - 12, 36, 16);
+    g.fillStyle = '#ffd23f'; g.fillRect(fx - 12, fy - 20, 24, 26);
+    g.fillStyle = '#fff'; g.fillRect(fx - 5, fy - 14, 10, 14);
   }
   g.fillStyle = kick > .5 ? '#ff4d4d' : '#fff';
   [[-6, -1, 4, 2], [2, -1, 4, 2], [-1, -6, 2, 4], [-1, 2, 2, 4]].forEach(([a, b, c, d]) => g.fillRect(W / 2 + a, H / 2 + b, c, d));
@@ -264,7 +354,7 @@ function draw(dt) {
   feed.forEach((f, i) => g.fillText(f[0], 6, 12 + i * 11));
   const S = 3, ox = W - map.length * S - 4;
   map.forEach((row, y) => [...row].forEach((c, x) => {
-    if (c === '#') { g.fillStyle = 'rgba(200,200,200,.45)'; g.fillRect(ox + x * S, 4 + y * S, S, S); }
+    if (c !== '.') { g.fillStyle = 'rgba(200,200,200,.45)'; g.fillRect(ox + x * S, 4 + y * S, S, S); }
   }));
   Object.values(vp).forEach(p => {
     if (p.hp <= 0) return;

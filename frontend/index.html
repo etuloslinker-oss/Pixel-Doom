@@ -89,7 +89,7 @@ small{color:#6b6058;max-width:36em;line-height:1.6;font-size:12px}
 <script>
 // After deploying the server on Render, set this to wss://<your-service>.onrender.com
 // (or open the page with ?server=wss://... to override).
-const SERVER = new URLSearchParams(location.search).get('server') || 'wss://pixel-doom.onrender.com';
+const SERVER = new URLSearchParams(location.search).get('server') || 'wss://YOUR-APP.onrender.com';
 
 const $ = id => document.getElementById(id), cv = $('c'), g = cv.getContext('2d');
 const FOV = Math.PI / 3, TF = Math.tan(FOV / 2), INTERP = 100;
@@ -137,7 +137,7 @@ function join() {
     const m = JSON.parse(e.data);
     if (m.t === 'init') {
       id = m.id; map = m.map; px = m.x; py = m.y; battery = 100; running = 1; snaps = [];
-      $('menu').style.display = 'none'; drone(); t0 = performance.now(); requestAnimationFrame(loop);
+      $('menu').style.display = 'none'; drone(); wardenSprite(300, 0); t0 = performance.now(); requestAnimationFrame(loop);
       const ping = () => send({ t: 'ping', c: performance.now() }); ping(); pinger = setInterval(ping, 2000);
     } else if (m.t === 'pong') {
       const r = performance.now() - m.c; rtt = rtt ? rtt * .7 + r * .3 : r;
@@ -324,6 +324,197 @@ function blit(img, cx, bottom, ph, pd, wr) {
   return [x0, top, pw];
 }
 
+// ---------- the Warden: a hand-painted 256x512 figure, shaded pixel by pixel ----------
+function makeWarden() {
+  const SW = 256, SH = 512, c = document.createElement('canvas'); c.width = SW; c.height = SH;
+  const x = c.getContext('2d');
+  let s = 4242; const R = () => (s = s * 16807 % 2147483647) / 2147483647;
+  const SK = ['#131813', '#434d43', '#79847a'];            // dark / mid / light flesh
+  const mx = px => 256 - px;
+
+  // smooth path through [x,y,r] control points
+  function path(pts, n = 24) {
+    const out = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+      for (let k = 0; k < n; k++) {
+        const t = k / n, t2 = t * t, t3 = t2 * t;
+        out.push([0, 1, 2].map(j => .5 * (2 * p1[j] + (-p0[j] + p2[j]) * t + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * t2 + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * t3)));
+      }
+    }
+    out.push(pts[pts.length - 1]); return out;
+  }
+  // a rounded limb: dark body, mid body, light ridge toward the light
+  function tube(pts, cols = SK, n = 24) {
+    const P = path(pts, n);
+    [[1, cols[0], 0], [.82, cols[1], .14], [.34, cols[2], .3]].forEach(([k, col, o]) => {
+      x.fillStyle = col;
+      P.forEach(([px, py, r]) => { x.beginPath(); x.arc(px - r * o, py - r * o * .6, Math.max(.5, r * k), 0, 7); x.fill(); });
+    });
+  }
+  const poly = (pts, fill) => { x.beginPath(); pts.forEach(([a, b], i) => i ? x.lineTo(a, b) : x.moveTo(a, b)); x.closePath(); x.fillStyle = fill; x.fill(); };
+  function hem(x0, x1, y, depth, n) { const o = []; for (let i = 0; i <= n; i++) o.push([x0 + (x1 - x0) * i / n, y + (i % 2 ? depth * (.45 + R() * .55) : R() * depth * .25)]); return o; }
+  const bez = (p0, p1, p2, p3, t) => { const u = 1 - t; return [0, 1].map(j => u * u * u * p0[j] + 3 * u * u * t * p1[j] + 3 * u * t * t * p2[j] + t * t * t * p3[j]); };
+
+  // ---- back layer: tattered coat tails and collar ----
+  [false, true].forEach(m => {
+    const X = v => m ? mx(v) : v;
+    const pts = [[98, 146], [70, 156], [52, 240], [42, 330], ...hem(42, 106, 334, 54, 11), [106, 300], [108, 210]].map(([a, b]) => [X(a), b]);
+    const g = x.createLinearGradient(X(40), 0, X(108), 0); g.addColorStop(0, '#09070c'); g.addColorStop(1, '#201a26');
+    poly(pts, g);
+    x.strokeStyle = 'rgba(70,60,82,.45)'; x.lineWidth = 1.5;
+    for (let i = 0; i < 6; i++) { const fx = X(56 + i * 9 + R() * 4); x.beginPath(); x.moveTo(fx, 170 + R() * 30); x.lineTo(fx + (R() - .5) * 8, 300 + R() * 50); x.stroke(); }
+    poly([[X(104), 152], [X(86), 96], [X(118), 140]], '#0c0a10');   // high collar
+  });
+
+  // ---- legs: bent, wiry, too long ----
+  [false, true].forEach(m => {
+    const X = v => m ? mx(v) : v;
+    tube([[112, 302, 15], [104, 345, 11], [98, 392, 9], [108, 440, 6], [104, 484, 5]].map(([a, b, r]) => [X(a), b, r]));
+    const fx = X(104), dir = m ? 1 : -1;
+    for (let k = 0; k < 3; k++) tube([[fx, 484, 4], [fx + dir * (8 + k * 8), 498 + k, 3], [fx + dir * (16 + k * 9), 507, 1.6]], [SK[0], SK[1], SK[2]], 8);
+  });
+  poly([[100, 292], [156, 292], [162, 330], ...hem(160, 94, 334, 22, 10), [94, 330]], '#14111a');
+
+  // ---- torso: starved, skin stretched over the ribs ----
+  x.beginPath(); x.moveTo(90, 152); x.bezierCurveTo(82, 205, 100, 250, 108, 302); x.lineTo(148, 302);
+  x.bezierCurveTo(156, 250, 174, 205, 166, 152); x.bezierCurveTo(150, 140, 106, 140, 90, 152); x.closePath();
+  const tg = x.createLinearGradient(90, 0, 166, 0);
+  [[0, '#232922'], [.3, '#5d695c'], [.5, '#7d897a'], [.72, '#566253'], [1, '#1f251f']].forEach(([o, col]) => tg.addColorStop(o, col));
+  x.fillStyle = tg; x.fill();
+  for (let i = 0; i < 9; i++) {
+    const y = 168 + i * 14.5, hw = 36 - Math.abs(i - 2.5) * 2.6 - i * .6;
+    [-1, 1].forEach(sd => {
+      x.beginPath(); x.moveTo(128 + sd * hw, y - 4); x.quadraticCurveTo(128 + sd * hw * .45, y + 15, 128 + sd * 3, y + 10);
+      x.strokeStyle = '#141713'; x.lineWidth = 6; x.stroke();
+      x.strokeStyle = '#9aa596'; x.lineWidth = 2.6; x.save(); x.translate(0, -2); x.stroke(); x.restore();
+    });
+  }
+  x.strokeStyle = '#161914'; x.lineWidth = 4; x.beginPath(); x.moveTo(128, 154); x.lineTo(128, 262); x.stroke();     // sternum groove
+  [-1, 1].forEach(sd => { x.beginPath(); x.moveTo(128, 156); x.quadraticCurveTo(128 + sd * 22, 150, 128 + sd * 40, 158); x.strokeStyle = '#a7b2a2'; x.lineWidth = 3; x.stroke(); }); // collarbones
+
+  // torn-open chest
+  const gash = [[110, 178], [122, 170], [120, 192], [134, 202], [128, 224], [138, 244], [122, 252], [113, 230], [118, 210], [105, 198], [109, 188]];
+  const gg = x.createRadialGradient(122, 215, 4, 122, 215, 44); gg.addColorStop(0, '#0a0103'); gg.addColorStop(1, '#4a070d');
+  poly(gash, gg);
+  x.strokeStyle = '#c8bda0'; x.lineWidth = 3;
+  for (let i = 0; i < 4; i++) { x.beginPath(); x.moveTo(108, 182 + i * 17); x.quadraticCurveTo(122, 194 + i * 17, 136, 190 + i * 17); x.stroke(); }
+  [[120, 238, 7, '#7a1019'], [128, 232, 5, '#9c2630'], [116, 244, 5, '#58090f']].forEach(([a, b, r, col]) => { x.fillStyle = col; x.beginPath(); x.arc(a, b, r, 0, 7); x.fill(); });
+  x.strokeStyle = '#8a3c38'; x.lineWidth = 2; x.beginPath(); gash.forEach(([a, b], i) => i ? x.lineTo(a, b) : x.moveTo(a, b)); x.closePath(); x.stroke();
+
+  // ---- arms: far too long, ending in claws ----
+  [false, true].forEach(m => {
+    const X = v => m ? mx(v) : v, w = m ? 6 : 0;
+    const A = [[88, 162, 13], [68, 212, 10], [58, 264, 8.5], [60 + w, 322, 7], [64 + w * 2, 374, 6]].map(([a, b, r]) => [X(a), b, r]);
+    tube(A);
+    const wx = X(64 + w * 2);
+    for (let k = 0; k < 5; k++) {
+      const sp = (k - 2) / 2, bx = wx + sp * 7, dx = sp * 15 + (m ? 4 : -4);
+      tube([[bx, 378, 4], [bx + dx * .4, 400 + Math.abs(sp) * 4, 3], [bx + dx * .8, 428 + Math.abs(sp) * 6, 2.2], [bx + dx * 1.1, 452 + Math.abs(sp) * 8 + k % 2 * 8, 1.2]], SK, 10);
+      poly([[bx + dx * 1.1 - 1.6, 446 + Math.abs(sp) * 8 + k % 2 * 8], [bx + dx * 1.1 + 1.6, 446 + Math.abs(sp) * 8 + k % 2 * 8], [bx + dx * 1.25, 470 + Math.abs(sp) * 8 + k % 2 * 8]], '#d6cdae');
+    }
+  });
+
+  // ---- the head ----
+  x.save(); x.translate(128, 8);
+  // sparse wet hair
+  x.lineWidth = 1.4; for (let i = 0; i < 9; i++) { const sd = i % 2 ? 1 : -1, sx = sd * (20 + R() * 8); x.strokeStyle = `rgba(8,6,10,${.5 + R() * .4})`; x.beginPath(); x.moveTo(sx, 14 + R() * 20); x.bezierCurveTo(sx + sd * 14, 50, sx + sd * (6 + R() * 12), 90, sx + sd * (8 + R() * 14), 130 + R() * 30); x.stroke(); }
+  // lower jaw skin (hangs open)
+  x.beginPath(); x.moveTo(-36, 76); x.bezierCurveTo(-46, 118, -22, 142, 0, 142); x.bezierCurveTo(22, 142, 46, 118, 36, 76); x.closePath();
+  const jg = x.createLinearGradient(-40, 0, 40, 0); jg.addColorStop(0, '#2b322c'); jg.addColorStop(.45, '#78837a'); jg.addColorStop(1, '#232923'); x.fillStyle = jg; x.fill();
+  // skull
+  x.beginPath(); x.moveTo(0, 0); x.bezierCurveTo(-28, 0, -34, 30, -29, 58); x.bezierCurveTo(-27, 80, -20, 94, 0, 98); x.bezierCurveTo(20, 94, 27, 80, 29, 58); x.bezierCurveTo(34, 30, 28, 0, 0, 0); x.closePath();
+  const hg = x.createRadialGradient(-8, 30, 6, 0, 50, 62); hg.addColorStop(0, '#b5bfb1'); hg.addColorStop(.5, '#79847a'); hg.addColorStop(1, '#2a302a'); x.fillStyle = hg; x.fill();
+  // veins on the scalp
+  x.lineWidth = 1.2; for (let i = 0; i < 7; i++) { x.strokeStyle = `rgba(88,22,38,${.4 + R() * .4})`; const a = -20 + R() * 40; x.beginPath(); x.moveTo(a, 4 + R() * 10); x.bezierCurveTo(a + (R() - .5) * 20, 20, a + (R() - .5) * 24, 34, a + (R() - .5) * 30, 44 + R() * 10); x.stroke(); }
+  // sunken eye sockets
+  [-1, 1].forEach(sd => {
+    x.save(); x.translate(sd * 15, 48); x.rotate(sd * .3);
+    const eg = x.createRadialGradient(0, 0, 1, 0, 0, 15); eg.addColorStop(0, '#000'); eg.addColorStop(.7, '#0c080a'); eg.addColorStop(1, 'rgba(20,10,14,0)');
+    x.fillStyle = eg; x.beginPath(); x.ellipse(0, 0, 13, 17, 0, 0, 7); x.fill();
+    x.fillStyle = '#d02424'; x.beginPath(); x.arc(0, 2, 2.2, 0, 7); x.fill();
+    x.restore();
+    x.strokeStyle = '#161a16'; x.lineWidth = 3.5; x.beginPath(); x.moveTo(sd * 3, 34); x.lineTo(sd * 26, 40); x.stroke();   // brow
+  });
+  x.fillStyle = '#0d0a0b'; [-1, 1].forEach(sd => { x.beginPath(); x.ellipse(sd * 4, 70, 1.8, 5, sd * .2, 0, 7); x.fill(); });    // nose slits
+  // the mouth: split to the cheeks
+  const mouth = () => { x.beginPath(); x.moveTo(-36, 76); x.quadraticCurveTo(0, 92, 36, 76); x.bezierCurveTo(44, 112, 20, 126, 0, 126); x.bezierCurveTo(-20, 126, -44, 112, -36, 76); x.closePath(); };
+  [-1, 1].forEach(sd => poly([[sd * 34, 74], [sd * 52, 66], [sd * 44, 80], [sd * 54, 90], [sd * 36, 82]], '#5a1a20'));     // torn corners
+  mouth(); const mg = x.createRadialGradient(0, 108, 4, 0, 104, 44); mg.addColorStop(0, '#040102'); mg.addColorStop(1, '#3d060b'); x.fillStyle = mg; x.fill();
+  x.save(); mouth(); x.clip();
+  // long tongue
+  tube([[0, 108, 7], [4, 132, 5.5], [-3, 168, 4.2], [3, 212, 3]], ['#2a0610', '#6a1024', '#a52a44'], 20);
+  // upper & lower needle teeth
+  const up = t => [-36 + 72 * t, 76 + 16 * t * (1 - t) * 4 * .5 + 0];
+  for (let i = 0; i <= 17; i++) { const t = i / 17, [px, py] = up(t), h = 8 + R() * 12, w = 3 + R() * 2;
+    poly([[px - w, py - 2], [px + w, py - 2], [px + (R() - .5) * 2, py + h]], '#d9d0ad'); poly([[px - w, py - 2], [px - w * .2, py - 2], [px - w * .5, py + h * .8]], '#8f8460'); }
+  for (let i = 1; i < 15; i++) { const [px, py] = bez([36, 76], [44, 112], [20, 126], [0, 126], i / 30).concat(); const q = i % 2 ? [px, py] : [-px, py]; const h = 7 + R() * 12, w = 3 + R() * 2;
+    poly([[q[0] - w, q[1] + 2], [q[0] + w, q[1] + 2], [q[0] + (R() - .5) * 3, q[1] - h]], '#cfc6a2'); }
+  x.restore();
+  x.strokeStyle = '#5a1018'; x.lineWidth = 2; mouth(); x.stroke();
+  // saliva
+  x.lineWidth = 1; for (let i = 0; i < 6; i++) { const sx = -22 + i * 9; x.strokeStyle = 'rgba(190,205,190,.35)'; x.beginPath(); x.moveTo(sx, 98); x.lineTo(sx + (R() - .5) * 4, 128 + R() * 30); x.stroke(); }
+  x.restore();
+
+  // ---- blood ----
+  x.fillStyle = 'rgba(70,4,8,.75)';
+  for (let i = 0; i < 26; i++) { const bx = 70 + R() * 116, by = 150 + R() * 150, bw = 1.5 + R() * 3; x.beginPath(); x.ellipse(bx, by, bw, bw * (1 + R() * 5), 0, 0, 7); x.fill(); }
+  for (let k = 0; k < 10; k++) { const bx = 40 + R() * 176; x.fillRect(bx, 440 + R() * 40, 1.5, 6 + R() * 22); }
+
+  // ---- scars, lesions, rot ----
+  x.lineCap = 'round';
+  for (let i = 0; i < 34; i++) {
+    const bx = 60 + R() * 136, by = 20 + R() * 330, L = 6 + R() * 16, a = R() * 6.28;
+    x.strokeStyle = `rgba(${60 + R() * 40 | 0},8,14,${.35 + R() * .4})`; x.lineWidth = .8 + R() * 1.6;
+    x.beginPath(); x.moveTo(bx, by); x.lineTo(bx + Math.cos(a) * L, by + Math.sin(a) * L); x.stroke();
+  }
+  for (let i = 0; i < 14; i++) { x.fillStyle = `rgba(${40 + R() * 30 | 0},${20 + R() * 20 | 0},${40 + R() * 30 | 0},.28)`; x.beginPath(); x.ellipse(70 + R() * 116, 160 + R() * 280, 4 + R() * 9, 3 + R() * 7, R() * 3, 0, 7); x.fill(); }
+
+  // ---------- per-pixel pass: skin grain, grime, wet sheen, edge shadow ----------
+  const id = x.getImageData(0, 0, SW, SH), d = id.data, N = SW * SH;
+  const hash = (a, b) => { let h = a * 374761393 + b * 668265263; h = (h ^ (h >> 13)) * 1274126177; return ((h ^ (h >> 16)) >>> 0) / 4294967295; };
+  const vn = (px, py, sc) => { const fx = px / sc, fy = py / sc, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy, sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+    return (hash(ix, iy) * (1 - sx) + hash(ix + 1, iy) * sx) * (1 - sy) + (hash(ix, iy + 1) * (1 - sx) + hash(ix + 1, iy + 1) * sx) * sy; };
+  function blur(src, r) {
+    const tmp = new Float32Array(N), out = new Float32Array(N), k = 1 / (2 * r + 1);
+    for (let y = 0; y < SH; y++) for (let X = 0; X < SW; X++) { let a = 0; for (let j = -r; j <= r; j++) a += src[y * SW + Math.min(SW - 1, Math.max(0, X + j))]; tmp[y * SW + X] = a * k; }
+    for (let y = 0; y < SH; y++) for (let X = 0; X < SW; X++) { let a = 0; for (let j = -r; j <= r; j++) a += tmp[Math.min(SH - 1, Math.max(0, y + j)) * SW + X]; out[y * SW + X] = a * k; }
+    return out;
+  }
+  const al = new Float32Array(N); for (let i = 0; i < N; i++) al[i] = d[i * 4 + 3] / 255;
+  const h1 = blur(al, 3), h2 = blur(al, 8);
+  for (let y = 1; y < SH - 1; y++) for (let X = 1; X < SW - 1; X++) {
+    const i = y * SW + X, o = i * 4; if (!d[o + 3]) continue;
+    const gx = h2[i + 1] - h2[i - 1], gy = h2[i + SW] - h2[i - SW];
+    const lit = 1 + (-gx * 5 - gy * 6) * 1.3;                                      // light from upper left
+    const ao = .5 + .5 * Math.min(1, Math.max(0, (h1[i] - .3) / .6));              // darker toward the silhouette
+    const n = vn(X, y, 3) * .45 + vn(X, y, 9) * .35 + vn(X, y, 27) * .2;
+    let k = (.8 + (lit - 1) * .7) * ao * (.5 + .85 * n) * (.9 + .2 * hash(X, y)) * (1 - .35 * Math.max(0, (y - 330) / 180));
+    const lum = (d[o] + d[o + 1] + d[o + 2]) / 3;
+    let sheen = lum > 60 && vn(X, y, 5) > .78 ? 26 : 0;                            // wet highlights
+    const grime = vn(X + 40, y, 22) > .55 ? .66 : 1;                              // dirt
+    d[o] = Math.min(255, d[o] * k * grime + sheen); d[o + 1] = Math.min(255, d[o + 1] * k * grime + sheen); d[o + 2] = Math.min(255, d[o + 2] * k * grime * 1.02 + sheen);
+  }
+  x.putImageData(id, 0, 0);
+  return c;
+}
+
+// mip chain (256 -> 128 -> 64) and darkness levels, so distant Wardens don't shimmer
+let WARD = null;
+function wardenSprite(ph, lvl) {
+  WARD ||= (() => {
+    const mips = [makeWarden()];
+    for (const [w, h] of [[128, 256], [64, 128]]) { const c = document.createElement('canvas'); c.width = w; c.height = h; const q = c.getContext('2d'); q.imageSmoothingEnabled = true; q.imageSmoothingQuality = 'high'; q.drawImage(mips[mips.length - 1], 0, 0, w, h); mips.push(c); }
+    return mips;
+  })();
+  const mi = ph > 170 ? 0 : ph > 85 ? 1 : 2;
+  return cache['w' + mi + lvl] ||= (() => {
+    const src = WARD[mi], c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+    const q = c.getContext('2d'); q.drawImage(src, 0, 0); q.globalCompositeOperation = 'source-atop'; q.fillStyle = `rgba(3,2,6,${Math.min(.92, lvl * .15)})`; q.fillRect(0, 0, c.width, c.height);
+    return c;
+  })();
+}
+
 // ---------- game loop ----------
 function loop(t) {
   if (!running) return;
@@ -386,10 +577,18 @@ function draw(dt, md) {
     }
     const b = bright(cx, pd);
     if (o.k === 'm') {
-      const lvl = Math.min(6, (1 - Math.max(b, .08)) * 7 | 0), ph = sz * .95;
-      const [x0, top, pw] = blit(sprite('mon', 0, false, lvl), cx, bottom, ph, pd, 12 / 22);
-      const es = Math.max(1, pw / 12);
-      [4.5, 7.5].forEach(c => { const ex = x0 + pw * c / 12; if (ok2(ex)) { g.fillStyle = 'rgba(255,0,0,.3)'; g.fillRect(ex - es, top + ph * 2.5 / 22 - es, es * 2.4, es * 2.4); g.fillStyle = '#ff3030'; g.fillRect(ex - es * .3, top + ph * 2.5 / 22 - es * .3, es * 1.2, es * 1.2); } });
+      const lvl = Math.min(6, (1 - Math.max(b, .08)) * 7 | 0), chase = G[5];
+      const ph = sz * 1.05 * (1 + Math.sin(now / 420) * .01);
+      const mcx = cx + Math.sin(now / 650) * sz * .012 + (chase ? (Math.random() - .5) * sz * .022 : 0);
+      const [x0, top, pw] = blit(wardenSprite(ph, lvl), mcx, bottom, ph, pd, .5);
+      const es = Math.max(.8, pw / 100), pulse = chase ? 1.5 + Math.sin(now / 60) * .3 : 1 + Math.sin(now / 500) * .15;
+      [.441, .559].forEach(f => {
+        const ex = x0 + pw * f, ey = top + ph * .1133;
+        if (!ok2(ex)) return;
+        g.fillStyle = 'rgba(255,0,0,.16)'; g.beginPath(); g.arc(ex, ey, es * 3.2 * pulse, 0, 7); g.fill();
+        g.fillStyle = 'rgba(255,40,30,.6)'; g.beginPath(); g.arc(ex, ey, es * 1.5 * pulse, 0, 7); g.fill();
+        g.fillStyle = '#ffd8c8'; g.beginPath(); g.arc(ex, ey, Math.max(.5, es * .55), 0, 7); g.fill();
+      });
       return;
     }
     const p = o.p, brt = Math.max(b, p.lt ? .5 : 0);

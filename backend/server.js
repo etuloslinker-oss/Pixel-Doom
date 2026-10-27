@@ -1,24 +1,23 @@
 const http = require('http');
 const { WebSocketServer } = require('ws');
 
-const MAP = [
-  '################',
-  '#..............#',
-  '#..##....##....#',
-  '#..#......#....#',
-  '#......#.......#',
-  '#..#...#...#...#',
-  '#..##......##..#',
-  '#.......##.....#',
-  '#.......##.....#',
-  '#..##......##..#',
-  '#..#...#...#...#',
-  '#......#.......#',
-  '#..#......#....#',
-  '#..##....##....#',
-  '#..............#',
-  '################',
+// Courtyard: only the top-left quarter is written out, the rest is mirrored so every spawn is fair.
+// #=brick  S=stone  H=hedge  P=marble pillar  T=torch wall  B=banner  F=fountain
+const HALF = [
+  '####T#####BB',
+  '#...........',
+  '#.PP..HHHH..',
+  '#.P.........',
+  '#...S....S..',
+  '#...S.......',
+  '#..HH.......',
+  '#.S.........',
+  '#.....T.....',
+  '#..SS.......',
+  '#.........FF',
+  '#.........FF',
 ];
+const MAP = [...HALF, ...[...HALF].reverse()].map(r => r + [...r].reverse().join(''));
 const PORT = process.env.PORT || 8080;
 const free = (x, y) => MAP[y | 0]?.[x | 0] === '.';
 
@@ -48,14 +47,14 @@ let ev = [];
 
 function spawn() {
   for (;;) {
-    const x = 1 + Math.random() * 14, y = 1 + Math.random() * 14;
+    const x = 1 + Math.random() * (MAP.length - 2), y = 1 + Math.random() * (MAP.length - 2);
     if (free(x, y) && free(x + .3, y + .3) && free(x - .3, y - .3)) return [x, y];
   }
 }
 function wallDist(o, a) {
-  for (let d = 0; d < 30; d += .05)
+  for (let d = 0; d < 40; d += .05)
     if (!free(o.x + Math.cos(a) * d, o.y + Math.sin(a) * d)) return d;
-  return 30;
+  return 40;
 }
 
 wss.on('connection', ws => {

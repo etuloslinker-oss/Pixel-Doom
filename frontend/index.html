@@ -90,7 +90,7 @@ small{color:#6b6058;max-width:36em;line-height:1.6;font-size:12px}
 <script>
 // After deploying the server on Render, set this to wss://<your-service>.onrender.com
 // (or open the page with ?server=wss://... to override).
-const SERVER = new URLSearchParams(location.search).get('server') || 'wss://pixel-doom.onrender.com';
+const SERVER = new URLSearchParams(location.search).get('server') || 'wss://YOUR-APP.onrender.com';
 
 const $ = id => document.getElementById(id), cv = $('c'), g = cv.getContext('2d', { willReadFrequently: true });
 const FOV = Math.PI / 3, TF = Math.tan(FOV / 2), INTERP = 100;
@@ -574,7 +574,8 @@ function meatBand(L, T) {
 function startKill() {
   const st = document.createElement('canvas'); st.width = W; st.height = H;
   cine = { t0: performance.now(), t: 0, fired: 0, shake: 1, sl: [], rung: 0, ev: {}, gl: 0, am: 0,
-    pt: [], drips: [], nx: 0, nb: 0, sev: null, st, sg: st.getContext('2d'), mW: meatBand(W, 56), mH: meatBand(H, 56) };
+    pt: [], drips: [], nx: 0, nb: 0, sev: null, fz: 0, last: null, lc: null, st, sg: st.getContext('2d'), mW: meatBand(W, 56), mH: meatBand(H, 56) };
+  cine.last = document.createElement('canvas'); cine.last.width = W; cine.last.height = H; cine.lc = cine.last.getContext('2d');
   $('hud').classList.add('cine'); setTimeout(shriek, 260);
 }
 
@@ -603,6 +604,22 @@ function splat(n, cx, cy, spread, big) {
     const a = R_() * 6.283, sp = 25 + R_() * (big ? 170 : 80);
     cine.pt.push({ x: cx + (R_() - .5) * spread * .5, y: cy + (R_() - .5) * spread * .3, vx: Math.cos(a) * sp * 1.3, vy: Math.sin(a) * sp - 40,
       k: R_() < .3 ? 'c' : 'd', s: 1 + (R_() * R_() * (big ? 6 : 3) | 0), life: .25 + R_() * .5, a: 0 });
+  }
+}
+const hs = n => { const v = Math.sin(n * 127.1) * 43758.5; return v - Math.floor(v); };
+const HSNAP = [[.85, .3], [1.3, -.38], [1.95, .5], [2.7, -.3], [3.1, .28]];                // sudden neck snaps: angle, held for .4s
+function bonehand(sd, qx, qy, curl, jt) {                                                  // long grey fingers hooking into the lens
+  const ex = sd < 0 ? -12 : W + 12;
+  pline(ex, qy + 10, qx, qy, 15, '#232a25'); pline(ex, qy + 10, qx, qy, 11, '#667168'); pline(ex, qy + 8, qx, qy - 2, 3, '#9aa598');
+  g.fillStyle = '#232a25'; g.fillRect(qx - 10 | 0, qy - 10 | 0, 20, 20); g.fillStyle = '#667168'; g.fillRect(qx - 8 | 0, qy - 8 | 0, 16, 16); g.fillStyle = '#8a958c'; g.fillRect(qx - 7 | 0, qy - 7 | 0, 5, 5);
+  const dir = sd < 0 ? 0 : Math.PI;
+  for (let i = 0; i < 5; i++) {
+    const a = dir + (i - 2) * .36 * (1 - curl * .5) + (hs(jt * 5 + i) - .5) * .14, a2 = a - sd * curl * 1.25, a3 = a2 - sd * curl * .9, L = i === 0 || i === 4 ? 20 : 27;
+    const p1 = [qx + Math.cos(a) * L, qy + (i - 2) * 3 + Math.sin(a) * L], p2 = [p1[0] + Math.cos(a2) * (L - 4), p1[1] + Math.sin(a2) * (L - 4)], p3 = [p2[0] + Math.cos(a3) * 11, p2[1] + Math.sin(a3) * 11];
+    pline(qx, qy + (i - 2) * 3, p1[0], p1[1], 5, '#232a25'); pline(qx, qy + (i - 2) * 3, p1[0], p1[1], 3, '#79847a');
+    pline(p1[0], p1[1], p2[0], p2[1], 4, '#232a25'); pline(p1[0], p1[1], p2[0], p2[1], 2, '#79847a');
+    g.fillStyle = '#a7b2a2'; g.fillRect(p1[0] - 1 | 0, p1[1] - 1 | 0, 3, 3);                                   // knuckle
+    pline(p2[0], p2[1], p3[0], p3[1], 3, '#3a2a22'); pline(p2[0], p2[1], p3[0], p3[1], 1, cine.fired > 1 ? '#a3121a' : '#d9d0ad');   // claw
   }
 }
 function spurt(x, y, n, vx0, vy0) {                                          // arterial spray
@@ -644,12 +661,18 @@ function kill(now, dt) {
   const t = (now - cine.t0) / 1000; cine.t = t;
   if (t > KT) { cine = null; $('hud').classList.remove('cine'); return; }
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-  const mo = pl[0], ev = cine.ev;
+  const mo = pl[0], ev = cine.ev, jt = Math.floor(t * 14);
+  if (t < cine.fz) {                                                         // hit-stop: the whole screen freezes on every bite, flickering inverted
+    g.imageSmoothingEnabled = false; g.drawImage(cine.last, 0, 0);
+    if (Math.floor(t * 60) & 1) { g.globalCompositeOperation = 'difference'; g.fillStyle = '#fff'; g.fillRect(0, 0, W, H); g.globalCompositeOperation = 'source-over'; }
+    return;
+  }
+  let snapR = 0; HSNAP.forEach(([st, sv], i) => { if (t >= st && t < st + .4) { snapR = sv; if (!ev['hn' + i]) { ev['hn' + i] = 1; snap(); cine.shake = Math.max(cine.shake, .6); } } });
   if (t < .3 && mo) { let df = Math.atan2(mo.y - py, mo.x - px) - pa; df = Math.atan2(Math.sin(df), Math.cos(df)); pa += df * Math.min(1, dt * 12); }
   cine.shake = Math.max(0, cine.shake - dt * 4); cine.gl = Math.max(0, cine.gl - dt);
   CHOMP.forEach((c, i) => {
     if (t >= c && cine.fired === i) {
-      cine.fired++; cine.shake = 1; cine.gl = .22; crunch(); if (i & 1) rip(); if (i > 1) snap();
+      cine.fired++; cine.shake = 1; cine.gl = .22; cine.fz = t + .07; crunch(); if (i & 1) rip(); if (i > 1) snap();
       splat(50 + i * 14 + (i === 4 ? 60 : 0), W / 2, H * .5, 90, true);
       for (let k = 0; k < 3 + i; k++) { const bx = W / 2 + (R_() - .5) * W * .7, by = H * (.2 + R_() * .55), br = 4 + R_() * 5; for (let m = 0; m < 4; m++) stamp(bx + (R_() - .5) * br * 1.6, by + (R_() - .5) * br * 1.2, br * (.5 + R_() * .6)); cine.drips.push({ x: bx | 0, y: (by + br) | 0, len: 25 + R_() * 60, sp: 8 + R_() * 20, a: 0, w: 2 + (R_() < .4) }); }
       if (i === 4) { gurgle(); spurt(W * .5, H + 4, 40, 0, -330); }
@@ -662,20 +685,22 @@ function kill(now, dt) {
   [[2.75, 1], [3.4, 2], [4.15, 3]].forEach(([c, k]) => { if (t > c && !ev['h' + k]) { ev['h' + k] = 1; tone(55 - k * 6, .35, 'sine', .5, 24); } });   // slowing heart
   if (t > 4.4 && !ev.fl) { ev.fl = 1; tone(1000, .5, 'sine', .035, 1000); }                  // flatline
 
-  const ease = v => 1 - Math.pow(1 - v, 3), lun = ease(Math.min(1, Math.max(0, (t - .1) / .2)));
-  let open = Math.min(1, Math.max(0, (t - .18) / .14)) * .9 + Math.sin(t * 38) * .06;
+  const lun = t < .28 ? 0 : t < .4 ? .5 : 1;                               // dark, flicker, then it is simply THERE: one jump cut, no easing
+  let open = Math.min(1, Math.max(0, (t - .3) / .1)) * .9 + Math.sin(t * 38) * .06;
   if (t > 2.1) open = .45 + Math.sin(t * 12) * .2;
   for (const c of CHOMP) { const d = t - c; if (d > -.09 && d < .32) open *= d < 0 ? -d / .09 : d < .05 ? 0 : (d - .05) / .27; }
+  if (t > 1.88 && t < 2.26) open = 1.4 + Math.sin(t * 60) * .04;            // jaw unhinges wide, hangs there, then snaps shut
   open = Math.max(0, open);
   const lurch = cine.fired >= 5 ? (1 - Math.exp(-(t - 2.35) * 9)) * W * .07 : 0;            // the last bite yanks you sideways
 
   // dim the room, then the face
-  g.fillStyle = `rgba(0,0,0,${.82 * lun})`; g.fillRect(0, 0, W, H);
-  const S = WARD[0], K = H * 1.45 / 170 * (.3 + .7 * lun) * (1 + .09 * t);
+  g.fillStyle = `rgba(0,0,0,${lun ? .82 : (hs(jt * 3.1) < .55 ? 1 : .35)})`; g.fillRect(0, 0, W, H);
+  if (!lun) [-12, 12].forEach(o => { g.fillStyle = hs(jt * 1.7 + o) < .7 ? '#ff2a1a' : '#400'; g.fillRect(W / 2 + o - 1 | 0, H * .38 | 0, 3, 2); });   // two eyes in the black
+  const S = WARD[0], K = H * 1.45 / 170 * (.3 + .7 * lun) * (1 + .09 * jt / 14) * (1 + .1 * cine.shake * cine.shake);
   const ys = 108, gap = open * 46 * K, up = -gap * .15, dn = gap * .85, X0 = (40 - 128) * K, YS = (ys - 100) * K;
   g.save(); g.globalAlpha = Math.min(1, lun * 4);
-  g.translate(W / 2 + lurch + Math.sin(t * 13) * 5 * lun + (Math.random() - .5) * 8 * cine.shake, H * .5 + (t > 2.1 ? (t - 2.1) * 20 : 0) + (Math.random() - .5) * 6 * cine.shake);
-  g.rotate(t > .3 ? Math.sin(t * 17) * .05 + Math.sin(t * 29) * .03 : 0);
+  g.translate(W / 2 + lurch + (hs(jt) - .5) * 10 * lun + (Math.random() - .5) * 8 * cine.shake, H * .5 + (t > 2.1 ? (t - 2.1) * 20 : 0) + (hs(jt + 50) - .5) * 7 * lun + (Math.random() - .5) * 6 * cine.shake);
+  g.rotate(t > .3 ? (hs(jt + 99) - .5) * .09 + snapR : 0);                    // stop-motion twitch (14fps) plus hard neck snaps
   // the gap: smear the split row (stretched skin), darken it, then the throat
   g.drawImage(S, 82, ys, 92, 1, (82 - 128) * K, YS + up, 92 * K, gap + 1);
   g.fillStyle = 'rgba(10,0,3,.74)'; g.fillRect((82 - 128) * K, YS + up, 92 * K, gap + 1);
@@ -723,6 +748,11 @@ function kill(now, dt) {
       g.fillStyle = '#b78f7c'; g.fillRect(sv.x + c - 5 | 0, sv.y + s2 - 5 | 0, 10, 10); g.fillStyle = '#8c0f16'; g.fillRect(sv.x - c - 3 | 0, sv.y - s2 - 3 | 0, 6, 6);
       spurt(sv.x - c, sv.y - s2, 2, 0, -40);
     }
+  }
+  // its hands: jump-cut into frame, clamp onto the lens, drag you down on the last bite
+  if (t > .45) {
+    const pr = t < .52 ? .3 : t < .6 ? .62 : t < .68 ? .85 : 1, cl = t < .9 ? .1 + (t > .7 ? .2 : 0) : t < 1 ? .6 : .95, dy = t > 2.35 ? Math.min(H * .22, (t - 2.35) * H * 3) : 0;
+    bonehand(-1, pr * W * .31, H * .5 + dy + (hs(jt + 7) - .5) * 4, cl, jt); bonehand(1, W - pr * W * .31, H * .56 + dy + (hs(jt + 9) - .5) * 4, cl, jt);
   }
   // heartbeat pulses of blood from your torn body
   if (t > 2.4 && t < 3.9 && t > cine.nb) { cine.nb = t + .55; spurt(W * (.3 + R_() * .4), H + 2, 14, 0, -280); }
@@ -788,6 +818,7 @@ function kill(now, dt) {
   // glitch tears on every bite
   if (cine.gl > 0) for (let i = 0; i < 6; i++) { const y = R_() * H | 0, h = 3 + (R_() * 9 | 0); g.drawImage(cv, 0, y, W, h, ((R_() - .5) * 26) | 0, y, W, h); }
   pixelate();
+  cine.lc.drawImage(cv, 0, 0);
 }
 
 // ---------- game loop ----------

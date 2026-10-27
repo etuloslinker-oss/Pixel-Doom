@@ -90,9 +90,9 @@ small{color:#6b6058;max-width:36em;line-height:1.6;font-size:12px}
 <script>
 // After deploying the server on Render, set this to wss://<your-service>.onrender.com
 // (or open the page with ?server=wss://... to override).
-const SERVER = new URLSearchParams(location.search).get('server') || 'wss://pixel-doom.onrender.com';
+const SERVER = new URLSearchParams(location.search).get('server') || 'wss://YOUR-APP.onrender.com';
 
-const $ = id => document.getElementById(id), cv = $('c'), g = cv.getContext('2d');
+const $ = id => document.getElementById(id), cv = $('c'), g = cv.getContext('2d', { willReadFrequently: true });
 const FOV = Math.PI / 3, TF = Math.tan(FOV / 2), INTERP = 100;
 let W = 320, H = 192, zb, FL, BX;
 function rs() { H = Math.round(W * innerHeight / innerWidth); cv.width = W; cv.height = H; zb = new Float32Array(W); BX = new Float32Array(W); FL = g.createImageData(W, H - (H >> 1)); }
@@ -520,7 +520,7 @@ function wardenSprite(ph, lvl) {
 // ---------- the kill: the Warden mauls you ----------
 // Everything below is drawn on the low-res canvas with whole-pixel fillRects (blood, flesh, bone),
 // then the finished frame is palette-quantised with an ordered dither so it reads as pixel art.
-let cine = null, camR = 0;
+let cine = null, camR = 0, camF = '', camT = '';
 const CHOMP = [.65, 1.05, 1.45, 1.8, 2.35], KT = 4.9, R_ = Math.random;
 const BLOOD = ['#1c0204', '#3d050a', '#620910', '#8c0f16', '#b3171f'];
 const FLESH = ['#4a0b10', '#7a1a20', '#a8383a', '#c9706a', '#e0a597'];
@@ -574,7 +574,7 @@ function meatBand(L, T) {
 function startKill() {
   const st = document.createElement('canvas'); st.width = W; st.height = H;
   cine = { t0: performance.now(), t: 0, fired: 0, shake: 1, sl: [], rung: 0, ev: {}, gl: 0, am: 0,
-    pt: [], drips: [], st, sg: st.getContext('2d'), mW: meatBand(W, 56), mH: meatBand(H, 56) };
+    pt: [], drips: [], nx: 0, nb: 0, sev: null, st, sg: st.getContext('2d'), mW: meatBand(W, 56), mH: meatBand(H, 56) };
   $('hud').classList.add('cine'); setTimeout(shriek, 260);
 }
 
@@ -602,8 +602,16 @@ function splat(n, cx, cy, spread, big) {
   for (let i = 0; i < n; i++) {
     const a = R_() * 6.283, sp = 25 + R_() * (big ? 170 : 80);
     cine.pt.push({ x: cx + (R_() - .5) * spread * .5, y: cy + (R_() - .5) * spread * .3, vx: Math.cos(a) * sp * 1.3, vy: Math.sin(a) * sp - 40,
-      k: R_() < .17 ? 'c' : 'd', s: 1 + (R_() * R_() * (big ? 6 : 3) | 0), life: .25 + R_() * .5, a: 0 });
+      k: R_() < .3 ? 'c' : 'd', s: 1 + (R_() * R_() * (big ? 6 : 3) | 0), life: .25 + R_() * .5, a: 0 });
   }
+}
+function spurt(x, y, n, vx0, vy0) {                                          // arterial spray
+  for (let i = 0; i < n; i++) cine.pt.push({ x, y, vx: vx0 + (R_() - .5) * 70, vy: vy0 * (.6 + R_() * .6), k: R_() < .12 ? 'c' : 'd', s: 1 + (R_() * R_() * 4 | 0), life: .35 + R_() * .4, a: 0 });
+}
+function limb(x0, y0, x1, y1) {                                              // a forearm in pixels: sleeve, skin, shading
+  const mx = x0 + (x1 - x0) * .38, my_ = y0 + (y1 - y0) * .38;
+  pline(x0, y0, mx, my_, 17, '#3b332c'); pline(x0, y0, mx, my_, 9, '#4a4038');
+  pline(mx, my_, x1, y1, 13, '#7a5a4c'); pline(mx, my_, x1, y1, 11, '#b78f7c'); pline(mx - 2, my_, x1 - 2, y1, 3, '#d4b09c');
 }
 function pline(x0, y0, x1, y1, w, col) {
   g.fillStyle = col; const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) | 0;
@@ -624,10 +632,13 @@ function camera(dt, now) {
   let tr = my.st === 1 ? .2 : my.st === 2 ? .3 : 0;
   if (cine) tr = .38 * Math.min(1, Math.max(0, (t - 1.9) / 1.3));
   camR += (tr - camR) * Math.min(1, dt * (cine ? 6 : 2.5));
-  if (Math.abs(camR) < .001 && !cine) { cv.style.transform = ''; return; }
+  // the CSS colour grade on a rotated, scaled canvas is what made the dead view crawl: drop it while the view is tilted
+  const nf = cine || Math.abs(camR) > .001 ? 'none' : ''; if (nf !== camF) { camF = nf; cv.style.filter = nf; }
+  if (Math.abs(camR) < .001 && !cine) { cv.style.transform = ''; camT = ''; return; }
   const sh = cine ? cine.shake : 0, r = camR + Math.sin(t * 31) * .02 * sh;
   const asp = Math.max(innerWidth / innerHeight, innerHeight / innerWidth), sc = Math.cos(r) + asp * Math.abs(Math.sin(r)) + (cine ? .06 : .02);
-  cv.style.transform = `translate(${(Math.random() - .5) * 26 * sh}px,${(Math.random() - .5) * 20 * sh}px) rotate(${r}rad) scale(${sc})`;
+  const tf = `translate(${(Math.random() - .5) * 26 * sh | 0}px,${(Math.random() - .5) * 20 * sh | 0}px) rotate(${r.toFixed(3)}rad) scale(${sc.toFixed(3)})`;
+  if (tf !== camT) { camT = tf; cv.style.transform = tf; }                    // only touch the style when it changes
 }
 function kill(now, dt) {
   const t = (now - cine.t0) / 1000; cine.t = t;
@@ -639,9 +650,10 @@ function kill(now, dt) {
   CHOMP.forEach((c, i) => {
     if (t >= c && cine.fired === i) {
       cine.fired++; cine.shake = 1; cine.gl = .22; crunch(); if (i & 1) rip(); if (i > 1) snap();
-      splat(34 + i * 10 + (i === 4 ? 40 : 0), W / 2, H * .5, 90, true);
+      splat(50 + i * 14 + (i === 4 ? 60 : 0), W / 2, H * .5, 90, true);
       for (let k = 0; k < 3 + i; k++) { const bx = W / 2 + (R_() - .5) * W * .7, by = H * (.2 + R_() * .55), br = 4 + R_() * 5; for (let m = 0; m < 4; m++) stamp(bx + (R_() - .5) * br * 1.6, by + (R_() - .5) * br * 1.2, br * (.5 + R_() * .6)); cine.drips.push({ x: bx | 0, y: (by + br) | 0, len: 25 + R_() * 60, sp: 8 + R_() * 20, a: 0, w: 2 + (R_() < .4) }); }
-      if (i === 4) gurgle();
+      if (i === 4) { gurgle(); spurt(W * .5, H + 4, 40, 0, -330); }
+      if (i === 1) { cine.sev = { x: W * .62, y: H * .5, vx: -150, vy: -240, ang: -1.1 }; snap(); rip(); }
     }
   });
   if (t > .35 && !ev.sc) { ev.sc = 1; scream(); }
@@ -692,6 +704,28 @@ function kill(now, dt) {
   });
   g.restore();
   g.imageSmoothingEnabled = false;
+
+  // your arm comes up to shield your face; the second bite takes it off at the elbow
+  if (lun > .5) {
+    const ax = W * .8, ay = H + 6, hx = W * .62 + (t < 1.05 ? Math.sin(t * 40) * 1.5 : 0), hy = H * .5, cut = cine.fired >= 2, f = cut ? .45 : 1;
+    const ex = ax + (hx - ax) * f, ey = ay + (hy - ay) * f;
+    limb(ax, ay, ex, ey);
+    if (!cut) { g.fillStyle = '#b78f7c'; g.fillRect(ex - 6 | 0, ey - 8 | 0, 12, 12); for (let i = 0; i < 4; i++) pline(ex - 5 + i * 3.4, ey - 8, ex - 7 + i * 4.2, ey - 17 - (i % 2) * 2, 2, '#b78f7c'); }
+    else {
+      for (let j = -7; j <= 7; j++) for (let i = -7; i <= 7; i++) { const d = Math.hypot(i, j); if (d > 7.2 || (d > 5.5 && R_() < .4)) continue; g.fillStyle = d < 2.6 ? (d < 1.2 ? '#8c0f16' : '#e6dfc6') : FLESH[1 + (R_() * 3 | 0)]; g.fillRect(ex + i | 0, ey + j | 0, 1, 1); }
+      for (let i = -2; i <= 2; i++) pline(ex + i * 3, ey - 6, ex + i * 3 + Math.sin(t * 7 + i) * 3, ey - 12 - ((i & 1) ? 4 : 0), 1, '#d7c2b4');   // tendons and nerves
+      if (t > cine.nx) { cine.nx = t + (t < 2.6 ? .1 : t < 3.4 ? .2 : .4); spurt(ex, ey - 6, t < 2.6 ? 10 : 5, -30, -230 + R_() * 40); }
+    }
+    const sv = cine.sev;
+    if (sv && sv.y < H + 40) {
+      sv.x += sv.vx * dt; sv.y += sv.vy * dt; sv.vy += 520 * dt; sv.ang += 9 * dt;
+      const c = Math.cos(sv.ang) * 20, s2 = Math.sin(sv.ang) * 20; limb(sv.x - c, sv.y - s2, sv.x + c, sv.y + s2);
+      g.fillStyle = '#b78f7c'; g.fillRect(sv.x + c - 5 | 0, sv.y + s2 - 5 | 0, 10, 10); g.fillStyle = '#8c0f16'; g.fillRect(sv.x - c - 3 | 0, sv.y - s2 - 3 | 0, 6, 6);
+      spurt(sv.x - c, sv.y - s2, 2, 0, -40);
+    }
+  }
+  // heartbeat pulses of blood from your torn body
+  if (t > 2.4 && t < 3.9 && t > cine.nb) { cine.nb = t + .55; spurt(W * (.3 + R_() * .4), H + 2, 14, 0, -280); }
 
   // gore in flight (droplets and chunks of you), then it hits the lens and sticks
   for (const p of cine.pt) {

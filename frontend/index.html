@@ -5,36 +5,95 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Hollowmere</title>
 <style>
-html,body{margin:0;height:100%;background:#050305;color:#cfc5b8;font-family:"Courier New",monospace;overflow:hidden}
-canvas{display:block;width:100vw;height:100vh;image-rendering:pixelated}
-#menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(5,3,5,.95);text-align:center;padding:20px}
-h1{font-size:clamp(38px,10vw,92px);margin:0;color:#8c1017;letter-spacing:.1em;text-shadow:3px 3px #000}
-#tag{max-width:34em;margin:0;line-height:1.55;opacity:.8}
-input,button{font:inherit;font-size:18px;padding:12px 18px;background:#000;color:#cfc5b8;border:2px solid #8c1017;border-radius:0}
-button{background:#8c1017;color:#fff;cursor:pointer}
-button:hover,button:focus-visible{background:#b3202a;outline:2px solid #fff}
-#st{min-height:1.2em;opacity:.75;max-width:30em}
-small{opacity:.55;max-width:34em}
+:root{--ink:#cfc5b8;--blood:#b3141b;--brass:#8a6a2c;--serif:Georgia,"Times New Roman",serif}
+html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:"Courier New",Courier,monospace;overflow:hidden}
+#c{display:block;width:100vw;height:100vh;image-rendering:pixelated;filter:sepia(.28) saturate(.85) contrast(1.1)}
+
+/* ---- title screen ---- */
+#menu{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at 50% 38%,rgba(70,8,12,.5),rgba(0,0,0,.97) 68%),#030203;text-align:center;padding:20px}
+#kicker{letter-spacing:.5em;font-size:clamp(10px,1.4vw,14px);color:#7c6a5a;text-transform:uppercase;padding-left:.5em}
+h1{font-family:var(--serif);font-weight:400;font-size:clamp(38px,10vw,96px);margin:0;color:var(--blood);letter-spacing:.14em;padding-left:.14em;text-shadow:0 0 22px rgba(179,20,27,.5),0 3px 0 #000;animation:flick 7s infinite}
+.rule{width:min(60vw,520px);height:1px;background:linear-gradient(90deg,transparent,#8a1118,transparent)}
+#tag{max-width:34em;margin:0;line-height:1.7;color:#a89c8e;font-size:clamp(12px,1.5vw,15px)}
+#tag b{color:#d8cdb8;font-weight:400}
+#nm{font:inherit;font-size:18px;padding:8px 6px;width:15em;max-width:80vw;text-align:center;background:transparent;color:var(--ink);border:0;border-bottom:1px solid #5a3a30;border-radius:0;letter-spacing:.1em}
+#nm:focus{outline:none;border-bottom-color:var(--blood)}
+#nm::placeholder{color:#5c5048}
+button{font-family:var(--serif);font-size:22px;letter-spacing:.18em;text-transform:uppercase;background:none;border:0;color:#d8d2c0;cursor:pointer;padding:10px 18px}
+button:hover,button:focus-visible{color:#e5383b;text-shadow:0 0 12px rgba(229,56,59,.7);outline:1px dashed #e5383b;outline-offset:4px}
+#st{min-height:1.2em;color:#8a7f76;max-width:30em;font-size:13px}
+small{color:#6b6058;max-width:36em;line-height:1.6;font-size:12px}
+
+/* ---- survival-horror HUD ---- */
+#hud{position:fixed;inset:0;pointer-events:none;font-size:clamp(11px,1.5vw,16px)}
+.panel{position:absolute;bottom:2.2vh;background:linear-gradient(#0d0809,#030203);border:1px solid #4a3a2c;box-shadow:0 0 0 1px #000,inset 0 0 14px #000;padding:.5em .7em}
+#ecgp{left:2vw;width:clamp(150px,17vw,250px)}
+#ecgc{display:block;width:100%;height:auto;background:#020805;border:1px solid #17321f}
+#cond{font-family:var(--serif);font-weight:700;letter-spacing:.2em;text-align:center;margin-top:.35em;font-size:1.25em;text-shadow:0 0 8px currentColor}
+#invp{right:2vw;min-width:clamp(160px,18vw,260px)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:1em;margin:.25em 0;letter-spacing:.12em;color:#9a8f82}
+#pips i{display:inline-block;width:.8em;height:1.1em;margin-left:.25em;border:1px solid #6a5a3a;background:#120c0a;transform:skewX(-8deg)}
+#pips i.on{background:linear-gradient(#ffd23f,#c9861a);box-shadow:0 0 6px #ffb02e}
+#pips b{margin-left:.5em;color:#ffd23f;font-weight:400}
+#lbar{display:inline-block;width:7em;height:.7em;border:1px solid #6a5a3a;background:#000}
+#lbar i{display:block;height:100%;width:100%;background:#d8c78a}
+#obj{margin-top:.5em;padding-top:.5em;border-top:1px solid #2c211a;color:#d8cdb8;font-size:.9em;min-height:1.2em}
+#box{position:absolute;left:50%;bottom:3vh;transform:translateX(-50%);width:min(44vw,560px);box-sizing:border-box;background:rgba(0,0,0,.8);border:1px solid #5a4a3a;box-shadow:0 0 0 1px #000;padding:.6em .9em;opacity:0;transition:opacity .3s}
+#boxt{margin:0;white-space:pre-wrap;font:inherit;color:#e6dcc8;line-height:1.5;min-height:1.5em}
+#prompt{position:absolute;left:50%;bottom:20vh;transform:translateX(-50%);color:#fff;letter-spacing:.15em;text-shadow:0 0 8px #000,0 0 3px #000;white-space:nowrap}
+#roster{position:absolute;top:2vh;right:2vw;text-align:right;font-size:.9em;line-height:1.55;letter-spacing:.08em;text-shadow:0 1px 0 #000;color:#cfc5b8}
+#roster .dn{color:#e5383b}#roster .dd{color:#6b6168}#roster .sf{color:#8fd694}
+#banner{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;opacity:0;transition:opacity .7s;background:radial-gradient(ellipse at center,rgba(0,0,0,.35),rgba(0,0,0,.75))}
+#banner.on{opacity:1}
+#banner.lose{background:radial-gradient(ellipse at center,rgba(40,0,0,.5),rgba(10,0,0,.85))}
+#banner h2{font-family:var(--serif);font-weight:400;font-size:clamp(30px,7vw,84px);letter-spacing:.16em;margin:0;padding-left:.16em}
+#banner p{margin:.8em 0 0;color:#b8aea2;letter-spacing:.08em}
+#banner.lose h2{color:var(--blood);text-shadow:0 0 26px rgba(179,20,27,.6)}
+#banner.win h2{color:#d8d2c0;text-shadow:0 0 20px rgba(200,190,150,.35)}
+@media (max-width:900px){#box{bottom:22vh;width:80vw}}
+
+/* ---- film grain, scanlines, vignette ---- */
+#fx{position:fixed;inset:0;z-index:30;pointer-events:none;overflow:hidden}
+#fx::before{content:"";position:absolute;inset:-10%;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");opacity:.07;mix-blend-mode:screen;animation:grain .6s steps(4) infinite}
+#fx::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(to bottom,rgba(0,0,0,.16) 0 1px,transparent 1px 3px),radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.55) 100%)}
+@keyframes grain{0%{transform:translate(0,0)}25%{transform:translate(-3%,2%)}50%{transform:translate(2%,-3%)}75%{transform:translate(-2%,-2%)}100%{transform:translate(3%,3%)}}
+@keyframes flick{0%,92%,100%{opacity:1}93%{opacity:.55}94%{opacity:1}96%{opacity:.7}97%{opacity:1}}
+@media (prefers-reduced-motion:reduce){h1,#fx::before{animation:none}}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="hud">
+  <div id="roster"></div>
+  <div id="banner"><h2></h2><p></p></div>
+  <div id="prompt"></div>
+  <div id="box"><pre id="boxt"></pre></div>
+  <div id="ecgp" class="panel"><canvas id="ecgc" width="120" height="44"></canvas><div id="cond">FINE</div></div>
+  <div id="invp" class="panel">
+    <div class="row"><span>FUSES</span><span id="pips"></span></div>
+    <div class="row"><span>LIGHT</span><span id="lbar"><i></i></span></div>
+    <div id="obj"></div>
+  </div>
+</div>
+<div id="fx"></div>
 <div id="menu">
+  <div id="kicker">Survival Horror</div>
   <h1>HOLLOWMERE</h1>
-  <p id="tag">The manor is dark and something walks its halls. Find four fuses, power the generator in the central hall, then escape through the north gate. Stay together. Keep your light low.</p>
-  <input id="nm" maxlength="12" placeholder="Name" aria-label="Name">
-  <button onclick="join()">Enter the manor</button>
+  <div class="rule"></div>
+  <p id="tag">The manor is silent. <b>It is not empty.</b><br>Recover four fuses. Restore power at the generator in the central hall. Break out through the north gate.<br>Stay together. Keep your light low.</p>
+  <input id="nm" maxlength="12" placeholder="Enter your name" aria-label="Name">
+  <button onclick="join()">&#9654; Enter the mansion</button>
   <div id="st"></div>
-  <small>WASD move · mouse or arrow keys turn · F or click: flashlight · hold E: revive a downed friend. A lit flashlight shows you more, but the Warden notices it from further away.</small>
+  <small>WASD move &middot; mouse or arrow keys turn &middot; F or click: flashlight &middot; hold E: revive a downed friend.<br>A lit flashlight shows you more, but the Warden notices it from further away.</small>
 </div>
 <script>
 // After deploying the server on Render, set this to wss://<your-service>.onrender.com
 // (or open the page with ?server=wss://... to override).
-const SERVER = new URLSearchParams(location.search).get('server') || 'wss://pixel-doom.onrender.com';
+const SERVER = new URLSearchParams(location.search).get('server') || 'wss://YOUR-APP.onrender.com';
 
 const $ = id => document.getElementById(id), cv = $('c'), g = cv.getContext('2d');
 const FOV = Math.PI / 3, TF = Math.tan(FOV / 2), INTERP = 100;
-let W = 400, H = 240, zb, FL, BX;
+let W = 320, H = 192, zb, FL, BX;
 function rs() { H = Math.round(W * innerHeight / innerWidth); cv.width = W; cv.height = H; zb = new Float32Array(W); BX = new Float32Array(W); FL = g.createImageData(W, H - (H >> 1)); }
 addEventListener('resize', rs); rs();
 
@@ -55,8 +114,11 @@ function tone(f, d, type = 'sine', v = .12, to = 40) {
     o.connect(a); a.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
   } catch {}
 }
+function piano(notes, gap = .16) { notes.forEach((f, i) => setTimeout(() => tone(f, 1.1, 'triangle', .09, f * .985), i * gap * 1000)); }
 function drone() {
   if (droned) return; droned = true;
+  const creak = () => { if (running) tone(110 + Math.random() * 70, 1.4, 'sawtooth', .025, 45); setTimeout(creak, 9000 + Math.random() * 9000); };
+  setTimeout(creak, 8000);
   try {
     ac = ac || new AudioContext();
     [48, 50.4, 96.7].forEach((f, i) => { const o = ac.createOscillator(), a = ac.createGain(); o.frequency.value = f; a.gain.value = i < 2 ? .05 : .012; o.connect(a); a.connect(ac.destination); o.start(); });
@@ -90,21 +152,22 @@ function join() {
       m.e.forEach(v => {
         if (v[0] === 'hit') { if (v[1] === id) { flash = 1; tone(220, .4, 'sawtooth', .22, 50); } }
         else if (v[0] === 'roar') tone(85, 1.2, 'sawtooth', .2, 28);
-        else if (v[0] === 'pick') { if (v[2] === id && v[1] === 'b') { battery = Math.min(100, battery + 60); tone(660, .12, 'square', .06, 880); } if (v[2] === id && v[1] === 'f') tone(440, .2, 'triangle', .1, 660); log(v[3] + (v[1] === 'f' ? ' took a fuse' : ' found a battery')); }
-        else if (v[0] === 'fuse') { log(`${v[2]} installed a fuse (${v[1]}/${G[2]})`); tone(180, .5, 'square', .1, 120); }
+        else if (v[0] === 'pick') { const mine = v[2] === id; if (mine && v[1] === 'b') battery = Math.min(100, battery + 60); if (mine) piano(v[1] === 'f' ? [523, 659, 784] : [659, 880], .09); log((mine ? 'You' : v[3]) + (v[1] === 'f' ? ' picked up a Fuse.' : ' found a Battery.')); }
+        else if (v[0] === 'fuse') { log(`${v[2]} placed a fuse in the generator (${v[1]}/${G[2]}).`); piano([392, 523, 659, 784]); tone(70, .6, 'square', .1, 40); }
         else if (v[0] === 'down') log(v[1] + ' is down!');
-        else if (v[0] === 'rev') log(v[1] + ' was revived');
-        else if (v[0] === 'dead') log(v[1] + ' bled out');
-        else if (v[0] === 'open') { log('THE NORTH GATE IS OPEN'); tone(120, 1.5, 'sawtooth', .2, 300); }
-        else if (v[0] === 'esc') log(v[1] + ' escaped');
+        else if (v[0] === 'rev') log(v[1] + ' was revived.');
+        else if (v[0] === 'dead') log(v[1] + ' bled out.');
+        else if (v[0] === 'open') { log('The north gate is open.'); tone(120, 1.5, 'sawtooth', .2, 300); }
+        else if (v[0] === 'esc') log(v[1] + ' escaped.');
       });
     }
   };
 }
 
 // ---------- input ----------
+$('nm').addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
 function toggleLight() { light = !light; tone(900, .05, 'square', .05, 600); }
-addEventListener('keydown', e => { keys[e.code] = 1; if (e.code === 'KeyF') toggleLight(); });
+addEventListener('keydown', e => { if (e.target.tagName === 'INPUT') return; keys[e.code] = 1; if (e.code === 'KeyF') toggleLight(); });
 addEventListener('keyup', e => keys[e.code] = 0);
 cv.addEventListener('mousedown', () => { if (document.pointerLockElement !== cv) cv.requestPointerLock(); else toggleLight(); });
 addEventListener('mousemove', e => { if (document.pointerLockElement === cv) pa += e.movementX * .003; });
@@ -129,9 +192,10 @@ function bake(rows, w, flip, pal, shade) {
   return c;
 }
 const cache = {};
+const MONPAL = { ...PAL, p: '#a3ae93', u: '#3a3a45', r: '#1b1b23', k: '#050505', o: '#08040a' };
 function sprite(view, hue, flip, lvl) {
   return cache[view + hue + flip + lvl] ||= bake({ front: FRONT, back: BACK, side: SIDE, mon: MON }[view], 12, flip,
-    { ...PAL, a: `hsl(${hue},55%,42%)`, b: `hsl(${hue},55%,26%)`, c: `hsl(${hue},60%,56%)` }, lvl);
+    view === 'mon' ? MONPAL : { ...PAL, a: `hsl(${hue},55%,42%)`, b: `hsl(${hue},55%,26%)`, c: `hsl(${hue},60%,56%)` }, lvl);
 }
 const IMG = { f: bake(FUSE, 6, false, PAL, 0), b: bake(BATT, 6, false, PAL, 0) };
 const TORCH = { ...PAL, n: '#4a3426' };
@@ -141,40 +205,73 @@ let seed = 7; const rnd = () => (seed = seed * 16807 % 2147483647) / 2147483647;
 function tex(fn) { const c = document.createElement('canvas'); c.width = c.height = 64; fn(c.getContext('2d')); return c; }
 function noise(x, col, n, a) { x.fillStyle = col; x.globalAlpha = a; for (let i = 0; i < n; i++) x.fillRect(rnd() * 64 | 0, rnd() * 64 | 0, 2, 1); x.globalAlpha = 1; }
 const TEX = {
+  // damask wallpaper above a dark wood wainscot
   '#': tex(x => {
-    for (let i = 0; i < 64; i++) { x.fillStyle = i % 16 < 8 ? '#3b4a35' : '#33402f'; x.fillRect(i, 0, 1, 64); }
-    for (let i = 0; i < 14; i++) { x.fillStyle = 'rgba(60,30,10,.35)'; x.fillRect(rnd() * 60 | 0, rnd() * 30 | 0, 3 + rnd() * 5 | 0, 10 + rnd() * 30 | 0); }
-    x.fillStyle = '#2a1c14'; x.fillRect(0, 54, 64, 10); x.fillStyle = '#1a120c'; x.fillRect(0, 54, 64, 2); noise(x, '#000', 200, .2);
+    x.fillStyle = '#34201d'; x.fillRect(0, 0, 64, 64);
+    for (let i = 0; i < 64; i += 8) { x.fillStyle = i % 16 ? '#2b1a18' : '#3a2521'; x.fillRect(i, 0, 4, 38); }
+    x.fillStyle = '#5a3a2a';
+    for (let gy = 4; gy < 38; gy += 16) for (let gx = 4; gx < 64; gx += 16) {
+      x.beginPath(); x.moveTo(gx, gy - 4); x.lineTo(gx + 3, gy); x.lineTo(gx, gy + 4); x.lineTo(gx - 3, gy); x.fill();
+    }
+    x.fillStyle = '#8a6a2c'; x.fillRect(0, 37, 64, 1);
+    x.fillStyle = '#4a3018'; x.fillRect(0, 38, 64, 3);
+    x.fillStyle = '#2c1a0e'; x.fillRect(0, 41, 64, 20);
+    for (let i = 0; i < 2; i++) { x.fillStyle = '#1e1209'; x.fillRect(3 + i * 31, 44, 27, 13); x.fillStyle = '#3d2814'; x.fillRect(4 + i * 31, 45, 25, 1); x.fillRect(4 + i * 31, 45, 1, 11); }
+    x.fillStyle = '#110a06'; x.fillRect(0, 61, 64, 3);
+    for (let i = 0; i < 10; i++) { x.fillStyle = 'rgba(70,20,10,.3)'; x.fillRect(rnd() * 60 | 0, rnd() * 30 | 0, 2 + rnd() * 4 | 0, 8 + rnd() * 24 | 0); }
+    noise(x, '#000', 220, .22);
   }),
+  // library bookcase
   S: tex(x => {
-    x.fillStyle = '#1c1613'; x.fillRect(0, 0, 64, 64);
-    for (let r = 0; r < 4; r++) { const t = 55 + rnd() * 20 | 0; x.fillStyle = `rgb(${t + 20},${t},${t - 14})`; x.fillRect(2, r * 16 + 2, 60, 12); x.fillStyle = '#0e0a08'; x.fillRect(30 + rnd() * 20 | 0, r * 16 + 2, 1, 12); }
-    x.fillStyle = '#8a6d12'; x.fillRect(28, 28, 8, 6); noise(x, '#000', 150, .2);
+    x.fillStyle = '#24160d'; x.fillRect(0, 0, 64, 64);
+    const cols = ['#5b1a1a', '#1f3a2a', '#2d2a4a', '#6a4a1c', '#3a2a1a', '#4a1f33'];
+    for (let r = 0; r < 4; r++) {
+      let bx = 3;
+      while (bx < 60) { const w = 3 + rnd() * 3 | 0, h = 9 + rnd() * 3 | 0; x.fillStyle = cols[rnd() * cols.length | 0]; x.fillRect(bx, r * 16 + 13 - h, w, h); x.fillStyle = 'rgba(200,160,60,.5)'; x.fillRect(bx, r * 16 + 13 - h + 2, w, 1); bx += w + (rnd() < .2 ? 1 : 0); }
+      x.fillStyle = '#150c07'; x.fillRect(0, r * 16 + 13, 64, 3);
+    }
+    x.fillStyle = '#3d2814'; x.fillRect(0, 0, 2, 64); x.fillRect(62, 0, 2, 64); noise(x, '#000', 150, .2);
   }),
+  // marble pillar
   P: tex(x => {
-    for (let i = 0; i < 64; i++) { const l = 120 + 40 * Math.sin(i / 64 * Math.PI * 8); x.fillStyle = `rgb(${l},${l - 6},${l - 20})`; x.fillRect(i, 0, 1, 64); }
-    x.fillStyle = '#6a5c44'; x.fillRect(0, 0, 64, 6); x.fillRect(0, 58, 64, 6); noise(x, '#000', 120, .1);
+    for (let i = 0; i < 64; i++) { const l = 70 + 70 * Math.sin(i / 63 * Math.PI) + (i % 8 === 0 ? -18 : 0); x.fillStyle = `rgb(${l | 0},${l - 3 | 0},${l - 12 | 0})`; x.fillRect(i, 0, 1, 64); }
+    x.strokeStyle = 'rgba(40,40,50,.35)'; for (let i = 0; i < 6; i++) { x.beginPath(); x.moveTo(rnd() * 64, 0); x.lineTo(rnd() * 64, 64); x.stroke(); }
+    x.fillStyle = '#4e4332'; x.fillRect(0, 0, 64, 6); x.fillRect(0, 58, 64, 6);
+    x.fillStyle = '#8a6a2c'; x.fillRect(0, 6, 64, 1); x.fillRect(0, 57, 64, 1); noise(x, '#000', 120, .1);
   }),
+  // generator / power panel
   G: tex(x => {
-    x.fillStyle = '#23272b'; x.fillRect(0, 0, 64, 64); x.fillStyle = '#3d444b'; x.fillRect(4, 4, 56, 56); x.fillStyle = '#15181b';
-    for (let i = 0; i < 4; i++) x.fillRect(9 + i * 13, 10, 10, 18);
-    x.fillStyle = '#e0b830'; for (let i = 0; i < 4; i++) x.fillRect(11 + i * 13, 36, 6, 6);
-    x.fillStyle = '#5c0b12'; x.fillRect(8, 48, 48, 6); noise(x, '#000', 150, .2);
+    x.fillStyle = '#1d2226'; x.fillRect(0, 0, 64, 64); x.fillStyle = '#39413f'; x.fillRect(4, 4, 56, 56);
+    x.fillStyle = '#101416'; for (let i = 0; i < 4; i++) x.fillRect(9 + i * 13, 10, 10, 18);
+    x.fillStyle = '#c9a227'; for (let i = 0; i < 4; i++) x.fillRect(11 + i * 13, 36, 6, 6);
+    x.fillStyle = '#5c0b12'; x.fillRect(8, 48, 48, 6);
+    x.fillStyle = '#6a726f'; [[6, 6], [56, 6], [6, 56], [56, 56]].forEach(([a, b]) => x.fillRect(a, b, 2, 2));
+    noise(x, '#000', 150, .2);
   }),
+  // wrought-iron gate
   E: tex(x => {
-    x.fillStyle = '#100c0b'; x.fillRect(0, 0, 64, 64); x.fillStyle = '#4a4a52';
-    for (let i = 0; i < 8; i++) x.fillRect(i * 8 + 2, 0, 3, 64);
-    x.fillRect(0, 10, 64, 4); x.fillRect(0, 50, 64, 4);
+    x.fillStyle = '#0c0807'; x.fillRect(0, 0, 64, 64); x.fillStyle = '#4a4a54';
+    for (let i = 0; i < 8; i++) { x.fillRect(i * 8 + 2, 0, 3, 64); x.fillRect(i * 8 + 1, 0, 5, 3); }
+    x.fillRect(0, 12, 64, 3); x.fillRect(0, 49, 64, 3);
+    x.strokeStyle = '#6a6a76'; x.lineWidth = 2; for (let i = 0; i < 4; i++) { x.beginPath(); x.arc(8 + i * 16, 31, 6, 0, 7); x.stroke(); }
+    x.fillStyle = '#000'; x.fillRect(31, 0, 2, 64);
+    x.fillStyle = '#b8902a'; x.beginPath(); x.arc(32, 31, 6, 0, 7); x.fill();
+    x.fillStyle = '#5c4210'; x.beginPath(); x.arc(32, 31, 3, 0, 7); x.fill();
   }),
 };
+// brass wall candle
 TEX.T = tex(x => {
-  x.drawImage(TEX['#'], 0, 0); x.fillStyle = '#2a1a10'; x.fillRect(29, 26, 6, 26);
-  x.fillStyle = '#ff7b00'; x.beginPath(); x.ellipse(32, 22, 8, 12, 0, 0, 7); x.fill();
-  x.fillStyle = '#ffd23f'; x.beginPath(); x.ellipse(32, 24, 4, 7, 0, 0, 7); x.fill();
+  x.drawImage(TEX['#'], 0, 0);
+  x.fillStyle = '#7a5a1c'; x.fillRect(28, 38, 8, 3); x.fillRect(30, 30, 4, 10);
+  x.fillStyle = '#e8dcc0'; x.fillRect(29, 20, 6, 12);
+  x.fillStyle = '#ff7b00'; x.beginPath(); x.ellipse(32, 14, 5, 8, 0, 0, 7); x.fill();
+  x.fillStyle = '#ffd23f'; x.beginPath(); x.ellipse(32, 16, 2.5, 4.5, 0, 0, 7); x.fill();
 });
+// checkered marble floor
 const FLOOR = tex(x => {
-  x.fillStyle = '#1d130d'; x.fillRect(0, 0, 64, 64);
-  for (let r = 0; r < 8; r++) { const t = 40 + rnd() * 25 | 0; x.fillStyle = `rgb(${t + 14},${t},${t - 10})`; x.fillRect(0, r * 8 + 1, 64, 7); x.fillStyle = '#120b07'; x.fillRect(rnd() * 64 | 0, r * 8, 1, 8); }
+  for (let ty = 0; ty < 2; ty++) for (let tx = 0; tx < 2; tx++) { const l = (tx + ty) % 2 ? 44 + rnd() * 8 | 0 : 96 + rnd() * 10 | 0; x.fillStyle = `rgb(${l + 6},${l + 2},${l - 6})`; x.fillRect(tx * 32, ty * 32, 32, 32); }
+  x.fillStyle = '#0c0807'; x.fillRect(0, 0, 64, 1); x.fillRect(0, 32, 64, 1); x.fillRect(0, 0, 1, 64); x.fillRect(32, 0, 1, 64);
+  x.strokeStyle = 'rgba(0,0,0,.18)'; for (let i = 0; i < 5; i++) { x.beginPath(); x.moveTo(rnd() * 64, rnd() * 64); x.lineTo(rnd() * 64, rnd() * 64); x.stroke(); }
   noise(x, '#000', 120, .2);
 }).getContext('2d').getImageData(0, 0, 64, 64).data;
 
@@ -326,35 +423,79 @@ function draw(dt, md) {
   if (flash > 0) { g.fillStyle = `rgba(200,0,0,${flash * .55})`; g.fillRect(0, 0, W, H); flash -= dt * 1.6; }
   if (my.st === 1) { g.fillStyle = 'rgba(110,0,0,.4)'; g.fillRect(0, 0, W, H); }
 
-  // HUD
-  const PH = 22, py0 = H - PH;
-  g.fillStyle = '#0c0709'; g.fillRect(0, py0, W, PH); g.fillStyle = '#5c0b12'; g.fillRect(0, py0, W, 1);
-  for (let i = 0; i < 2; i++) { g.fillStyle = i < my.hp ? '#c1121f' : '#2a1215'; g.fillRect(6 + i * 11, py0 + 4, 9, 7); }
-  g.textAlign = 'left'; g.font = '7px monospace'; g.fillStyle = '#8a7f86'; g.fillText('LIGHT', 6, py0 + 19);
-  g.fillStyle = '#000'; g.fillRect(34, py0 + 13, 60, 5);
-  g.fillStyle = battery > 25 ? '#e8d9a0' : '#e5383b'; g.fillRect(35, py0 + 14, 58 * battery / 100, 3);
-  g.textAlign = 'center'; g.font = '9px monospace'; g.fillStyle = '#cfc5b8';
-  g.fillText(G[3] ? 'EXIT OPEN: north gate' : my.cy ? 'Carry the fuse to the generator' : `Fuses ${G[1]}/${G[2]}`, W / 2, py0 + 14);
-  g.textAlign = 'right'; g.fillStyle = '#6b6168'; g.fillText((rtt | 0) + ' ms', W - 4, py0 + 14);
+  hud(dt, now, md, vp);
+}
+
+// ---------- survival-horror HUD (DOM) ----------
+const ecgC = $('ecgc'), ecgG = ecgC.getContext('2d'), hudEl = {};
+['cond', 'pips', 'lbar', 'obj', 'boxt', 'box', 'roster', 'prompt', 'banner'].forEach(k => hudEl[k] = $(k));
+const lbarI = hudEl.lbar.firstElementChild, banH = hudEl.banner.querySelector('h2'), banP = hudEl.banner.querySelector('p');
+const last = {}, esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const setT = (k, el, v, prop = 'textContent') => { if (last[k] !== v) { last[k] = v; el[prop] = v; } };
+const COND = { FINE: ['#3fe06a', 1.1], CAUTION: ['#e6b422', 1.7], DANGER: ['#e5383b', 2.7], DEAD: ['#e5383b', 0] };
+let ecgT = 0;
+function beat(t) { // one heartbeat, t in [0,1)
+  if (t < .08) return Math.sin(t / .08 * Math.PI) * .12;
+  if (t < .16) return 0;
+  if (t < .19) return -(t - .16) / .03 * .15;
+  if (t < .24) return -.15 + (t - .19) / .05 * 1.15;
+  if (t < .29) return 1 - (t - .24) / .05 * 1.35;
+  if (t < .33) return -.35 + (t - .29) / .04 * .35;
+  if (t < .5) return Math.sin((t - .33) / .17 * Math.PI) * .22;
+  return 0;
+}
+function drawEcg(dt, col, rate) {
+  const w = ecgC.width, h = ecgC.height, g2 = ecgG;
+  ecgT += dt * rate;
+  g2.clearRect(0, 0, w, h);
+  g2.beginPath();
+  for (let x = 0; x < w; x++) {
+    const p = ecgT - (w - x) / w * 1.6, y = h * .66 - (rate ? beat(p - Math.floor(p)) : 0) * h * .5;
+    x ? g2.lineTo(x, y) : g2.moveTo(x, y);
+  }
+  g2.strokeStyle = col; g2.lineWidth = 1.6; g2.shadowColor = col; g2.shadowBlur = 5; g2.stroke(); g2.shadowBlur = 0;
+  const fade = g2.createLinearGradient(0, 0, w, 0); fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(.55, 'rgba(0,0,0,1)');
+  g2.globalCompositeOperation = 'destination-in'; g2.fillStyle = fade; g2.fillRect(0, 0, w, h);
+  g2.globalCompositeOperation = 'destination-over'; g2.strokeStyle = 'rgba(60,200,100,.12)'; g2.lineWidth = 1; g2.beginPath();
+  for (let x = 0; x <= w; x += 10) { g2.moveTo(x + .5, 0); g2.lineTo(x + .5, h); }
+  for (let y = 0; y <= h; y += 10) { g2.moveTo(0, y + .5); g2.lineTo(w, y + .5); }
+  g2.stroke(); g2.globalCompositeOperation = 'source-over';
+}
+function hud(dt, now, md, vp) {
+  // condition monitor
+  const cond = my.st === 2 ? 'DEAD' : my.st === 1 ? 'DANGER' : my.hp <= 1 ? 'CAUTION' : 'FINE', [col, rate] = COND[cond];
+  if (last.cond !== cond) { hudEl.cond.textContent = cond; hudEl.cond.style.color = col; last.cond = cond; }
+  drawEcg(dt, col, rate);
+
+  // fuses + light
+  const pips = Array.from({ length: G[2] }, (_, i) => `<i class="${i < G[1] ? 'on' : ''}"></i>`).join('') + (my.cy ? '<b>+1</b>' : '');
+  setT('pips', hudEl.pips, pips, 'innerHTML');
+  const bk = (battery | 0) + (battery < 25 ? 'L' : '');
+  if (last.bk !== bk) { last.bk = bk; lbarI.style.width = battery + '%'; lbarI.style.background = battery < 25 ? '#c1121f' : '#d8c78a'; }
+  setT('obj', hudEl.obj, G[3] ? 'The north gate is open.' : my.cy ? 'Take the fuse to the generator.' : 'Find the fuses.');
+
+  // typed message box
   feed = feed.filter(f => now - f[1] < 6000);
-  g.textAlign = 'left'; g.font = '9px monospace'; g.fillStyle = '#d8cdb8'; feed.forEach((f, i) => g.fillText(f[0], 6, 12 + i * 11));
-  let ty = 12; g.textAlign = 'right'; g.font = '8px monospace';
-  Object.values(pl).filter(p => p.id).forEach(p => {
-    g.fillStyle = p.st === 0 ? '#cfc5b8' : p.st === 1 ? '#e5383b' : '#6b6168';
-    g.fillText(p.name + (p.st === 1 ? ' DOWN' : p.st === 2 ? ' DEAD' : p.st === 3 ? ' SAFE' : p.cy ? ' [fuse]' : ''), W - 4, ty); ty += 10;
-  });
-  g.textAlign = 'center';
+  setT('boxt', hudEl.boxt, feed.slice(-4).map(f => f[0].slice(0, (now - f[1]) / 18 | 0)).join('\n'));
+  hudEl.box.style.opacity = feed.length ? 1 : 0;
+
+  // party roster
+  const cls = ['', 'dn', 'dd', 'sf'], tag = ['', ' - DOWN', ' - DEAD', ' - SAFE'];
+  setT('roster', hudEl.roster, Object.values(pl).filter(p => p.id).map(p =>
+    `<div class="${cls[p.st]}">${esc(p.name)}${tag[p.st] || ''}${p.st === 0 && p.cy ? ' [fuse]' : ''}</div>`).join(''), 'innerHTML');
+
+  // revive prompt
   const near = Object.values(vp).find(p => p.id && p.id !== id && p.st === 1 && Math.hypot(p.x - px, p.y - py) < 1.6);
-  if (G[0] !== 'p') {
-    g.fillStyle = 'rgba(0,0,0,.7)'; g.fillRect(0, H / 2 - 26, W, 52);
-    g.font = 'bold 18px monospace'; g.fillStyle = G[0] === 'w' ? '#8fd694' : '#e5383b'; g.fillText(G[0] === 'w' ? 'YOU ESCAPED' : 'THE WARDEN WINS', W / 2, H / 2);
-    g.font = '9px monospace'; g.fillStyle = '#ccc'; g.fillText('Next round in ' + G[4] + 's', W / 2, H / 2 + 16);
-  } else if (my.st === 1) {
-    g.font = 'bold 14px monospace'; g.fillStyle = '#fff'; g.fillText('YOU ARE DOWN', W / 2, H / 2 - 8);
-    g.font = '9px monospace'; g.fillText(`A friend can revive you (${my.bt}s left)`, W / 2, H / 2 + 6);
-  } else if (my.st === 2) { g.font = 'bold 14px monospace'; g.fillStyle = '#e5383b'; g.fillText('YOU BLED OUT', W / 2, H / 2); }
-  else if (my.st === 3) { g.font = 'bold 12px monospace'; g.fillStyle = '#8fd694'; g.fillText('You escaped. Waiting for the others…', W / 2, H / 2); }
-  else if (near) { g.font = '9px monospace'; g.fillStyle = '#fff'; g.fillText('HOLD E TO REVIVE ' + near.name, W / 2, py0 - 8); }
+  setT('prompt', hudEl.prompt, G[0] === 'p' && my.st === 0 && near ? 'HOLD E TO REVIVE ' + near.name.toUpperCase() : '');
+
+  // full-screen banners
+  let bh = '', bp = '', bc = '';
+  if (G[0] !== 'p') { bh = G[0] === 'w' ? 'YOU ESCAPED' : 'YOU ARE DEAD'; bp = 'Next round in ' + G[4] + 's'; bc = G[0] === 'w' ? 'win' : 'lose'; }
+  else if (my.st === 1) { bh = 'YOU ARE DOWN'; bp = `A friend can revive you (${my.bt}s left)`; bc = 'lose'; }
+  else if (my.st === 2) { bh = 'YOU ARE DEAD'; bp = 'Wait for the next round'; bc = 'lose'; }
+  else if (my.st === 3) { bh = 'YOU ESCAPED'; bp = 'Waiting for the others...'; bc = 'win'; }
+  const bkey = bh + '|' + bp + '|' + bc;
+  if (last.ban !== bkey) { last.ban = bkey; banH.textContent = bh; banP.textContent = bp; hudEl.banner.className = bh ? 'on ' + bc : ''; }
 }
 </script>
 </body>

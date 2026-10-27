@@ -30,7 +30,7 @@ small{opacity:.55;max-width:34em}
 <script>
 // After deploying the server on Render, set this to wss://<your-service>.onrender.com
 // (or open the page with ?server=wss://... to override).
-const SERVER = new URLSearchParams(location.search).get('server') || 'wss://YOUR-APP.onrender.com';
+const SERVER = new URLSearchParams(location.search).get('server') || 'wss://pixel-doom.onrender.com';
 
 const $ = id => document.getElementById(id), cv = $('c'), g = cv.getContext('2d');
 const FOV = Math.PI / 3, TF = Math.tan(FOV / 2), INTERP = 100;
